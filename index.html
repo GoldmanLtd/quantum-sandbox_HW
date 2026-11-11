@@ -1,0 +1,1948 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quantum Sandbox — Bloch Sphere Instrument</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <!-- Three.js & OrbitControls -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            paper: '#F4F4F0',
+            alabaster: '#FAF9F6',
+            well: '#ECEBE6',
+            stage: '#EAE9E3',
+            hairline: '#D4D3CC',
+            ink: '#141413',
+            slateMuted: '#5C5C57',
+            signal: '#E63B19',
+            cobalt: '#0F52BA',
+            viridian: '#0D7A5F',
+          }
+        }
+      }
+    };
+  </script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background-color: #F4F4F0;
+      color: #141413;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .tabular {
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Crisp Architectural Scrollbars */
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #FAF9F6;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #C6C5BD;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #8E8D85;
+    }
+
+    /* Dieter Rams / Braun Precision Mechanical Sliders */
+    input[type="range"].q-slider {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 2px;
+      background: #C8C7BF;
+      border-radius: 0;
+      outline: none;
+      cursor: pointer;
+    }
+    input[type="range"].q-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 10px;
+      height: 16px;
+      border-radius: 1px;
+      background: #141413;
+      border: 1px solid #141413;
+      cursor: pointer;
+      transition: background-color 0.12s ease, border-color 0.12s ease;
+    }
+    input[type="range"].q-slider::-webkit-slider-thumb:hover {
+      background: #E63B19;
+      border-color: #E63B19;
+    }
+    input[type="range"].q-slider::-moz-range-thumb {
+      width: 10px;
+      height: 16px;
+      border-radius: 1px;
+      background: #141413;
+      border: 1px solid #141413;
+      cursor: pointer;
+    }
+    input[type="range"].q-slider::-moz-range-thumb:hover {
+      background: #E63B19;
+      border-color: #E63B19;
+    }
+
+    /* 3D Projected Ket & Axis Labels */
+    .bloch-label {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      user-select: none;
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 600;
+      line-height: 1;
+      white-space: nowrap;
+      letter-spacing: -0.02em;
+    }
+
+    /* Unitary Gate Hover Matrix Popover */
+    .gate-btn {
+      position: relative;
+    }
+    .gate-tooltip {
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 50%;
+      transform: translateX(-50%) translateY(2px);
+      opacity: 0;
+      pointer-events: none;
+      z-index: 40;
+      transition: opacity 0.12s ease, transform 0.12s ease;
+      white-space: nowrap;
+    }
+    .gate-btn:hover .gate-tooltip {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* Projective Collapse Border Pulse */
+    @keyframes collapseOutline {
+      0% { outline: 2px solid #E63B19; outline-offset: -2px; }
+      100% { outline: 2px solid rgba(230, 59, 25, 0); outline-offset: -2px; }
+    }
+    .collapse-flash {
+      animation: collapseOutline 0.45s ease-out;
+    }
+
+    /* Minimal Status Toast */
+    @keyframes toastFade {
+      from { opacity: 0; transform: translate(-50%, 6px); }
+      to { opacity: 1; transform: translate(-50%, 0); }
+    }
+    .toast-anim {
+      animation: toastFade 0.15s ease-out forwards;
+    }
+  </style>
+</head>
+<body class="min-h-screen lg:h-screen lg:overflow-hidden flex flex-col bg-paper text-ink selection:bg-signal/15 selection:text-ink">
+
+  <!-- ==================== DOCKED ARCHITECTURAL TOP INSTRUMENT BAR ==================== -->
+  <header class="bg-alabaster border-b border-hairline px-4 py-2.5 flex items-center justify-between gap-4 shrink-0 z-30">
+    <!-- Left: Instrument Identification & View Tabs -->
+    <div class="flex items-center gap-6 overflow-x-auto">
+      <a href="#bloch" onclick="setViewMode('single'); return false;" class="flex items-center gap-3 shrink-0 group">
+        <!-- Precision Geometric Bloch Emblem -->
+        <div class="w-8 h-8 border border-ink bg-paper flex items-center justify-center">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="12" cy="12" r="8.5" stroke="#141413" stroke-width="1.25" />
+            <ellipse cx="12" cy="12" rx="8.5" ry="3" stroke="#5C5C57" stroke-width="1" />
+            <line x1="12" y1="2" x2="12" y2="22" stroke="#0F52BA" stroke-width="1.25" />
+            <line x1="12" y1="12" x2="17" y2="6.5" stroke="#E63B19" stroke-width="1.75" />
+            <circle cx="12" cy="12" r="1.5" fill="#141413" />
+          </svg>
+        </div>
+        <div class="leading-tight">
+          <div class="flex items-center gap-2">
+            <span class="text-[14px] font-bold tracking-tight uppercase text-ink">Quantum Sandbox</span>
+            <span class="font-mono text-[11px] font-medium text-slateMuted border border-hairline bg-well px-1.5 py-0.5">BLOCH-01</span>
+          </div>
+          <div class="text-[10px] font-mono uppercase tracking-widest text-slateMuted hidden sm:block">
+            Statevector &amp; Reduced Density Matrix Simulator
+          </div>
+        </div>
+      </a>
+
+      <!-- Segmented Architectural View Switcher -->
+      <nav class="flex items-center border border-hairline bg-well p-0.5 text-[12px] font-medium shrink-0">
+        <button id="nav-tab-single" onclick="setViewMode('single')"
+          class="px-3 py-1 bg-alabaster text-ink border border-hairline font-semibold transition-colors cursor-pointer">
+          Single Qubit
+        </button>
+        <button id="nav-tab-multi" onclick="setViewMode('multi')"
+          class="px-3 py-1 text-slateMuted hover:text-ink border border-transparent transition-colors cursor-pointer flex items-center gap-1.5">
+          <span>Multi-Qubit Register</span>
+          <span id="multi-badge" class="font-mono text-[10px] px-1 py-0.2 bg-paper border border-hairline text-ink tabular">1Q</span>
+        </button>
+        <button onclick="openModal('guide-modal')"
+          class="px-3 py-1 text-slateMuted hover:text-ink border border-transparent transition-colors cursor-pointer">
+          Experiments
+        </button>
+      </nav>
+    </div>
+
+    <!-- Right: Live Purity Indicator & Utility Controls -->
+    <div class="flex items-center gap-2 shrink-0">
+      <!-- State Purity Readout -->
+      <div id="global-status-pill"
+        class="hidden md:flex items-center gap-2 px-3 py-1.5 bg-well border border-hairline font-mono text-[11px] text-viridian tabular">
+        <span id="status-dot" class="w-2 h-2 bg-viridian"></span>
+        <span id="status-text">PURE STATE · Tr(ρ²)=1.00</span>
+      </div>
+
+      <!-- PNG Snapshot -->
+      <button onclick="downloadSnapshot()" title="Export 3D Viewport as PNG"
+        class="px-2.5 py-1.5 bg-alabaster hover:bg-well border border-hairline text-[11.5px] font-mono font-medium text-ink transition-colors cursor-pointer flex items-center gap-1.5">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+        </svg>
+        <span class="hidden sm:inline">PNG</span>
+      </button>
+
+      <!-- Reset -->
+      <button onclick="resetSimulator()" title="Reset to |0⟩ Ground State (R)"
+        class="px-2.5 py-1.5 bg-alabaster hover:bg-signal hover:text-white hover:border-signal border border-hairline text-[11.5px] font-mono font-medium text-signal transition-colors cursor-pointer">
+        Reset
+      </button>
+
+      <!-- Keyboard Shortcuts -->
+      <button onclick="openModal('shortcuts-modal')" title="Keyboard Shortcuts (?)"
+        class="px-2.5 py-1.5 bg-alabaster hover:bg-well border border-hairline text-[11.5px] font-mono font-medium text-slateMuted hover:text-ink transition-colors cursor-pointer">
+        Keys [?]
+      </button>
+    </div>
+  </header>
+
+  <!-- ==================== FULL-BLEED DOCKED 3-COLUMN WORKSPACE ==================== -->
+  <main class="flex-1 flex flex-col lg:flex-row lg:overflow-hidden">
+
+    <!-- ==================== LEFT DOCKED PANEL: QUANTUM STATE & TELEMETRY ==================== -->
+    <aside class="w-full lg:w-[310px] xl:w-[330px] bg-alabaster border-b lg:border-b-0 lg:border-r border-hairline lg:overflow-y-auto shrink-0 divide-y divide-hairline z-20">
+
+      <!-- 1. DIRAC NOTATION & AMPLITUDES -->
+      <section class="p-4">
+        <div class="flex items-center justify-between mb-2.5">
+          <h2 class="text-[11px] font-semibold tracking-[0.08em] uppercase text-slateMuted">
+            Dirac Statevector
+          </h2>
+          <!-- Cartesian / Polar Format Switch -->
+          <div class="flex items-center bg-well p-0.5 border border-hairline text-[10.5px] font-mono">
+            <button id="fmt-cartesian-btn" onclick="setDiracFormat('cartesian')"
+              class="px-2 py-0.5 bg-alabaster text-ink border border-hairline font-semibold cursor-pointer">
+              a+bi
+            </button>
+            <button id="fmt-polar-btn" onclick="setDiracFormat('polar')"
+              class="px-2 py-0.5 text-slateMuted hover:text-ink border border-transparent cursor-pointer">
+              r·eⁱᵠ
+            </button>
+          </div>
+        </div>
+
+        <div class="bg-well border border-hairline p-3">
+          <div id="dirac-display" class="font-mono text-[13px] font-medium text-ink leading-relaxed break-words min-h-[24px] tabular">
+            1.000 |0⟩
+          </div>
+          <div class="mt-2.5 pt-2 border-t border-hairline flex items-center justify-between gap-2">
+            <button onclick="copyAndSaveDirac()"
+              class="px-2.5 py-1 bg-alabaster hover:bg-ink hover:text-alabaster border border-hairline text-[11px] font-mono font-medium text-ink transition-colors cursor-pointer">
+              Copy &amp; Log State
+            </button>
+            <span id="global-phase-readout" class="font-mono text-[11px] text-slateMuted tabular">‖ψ‖ = 1.00</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. QUBIT BLOCH COORDINATES & PURITY -->
+      <section class="p-4">
+        <div class="flex items-center justify-between mb-2.5">
+          <h2 class="text-[11px] font-semibold tracking-[0.08em] uppercase text-slateMuted">
+            Qubit Telemetry
+          </h2>
+          <span class="font-mono text-[10.5px] text-slateMuted">Bloch (x, y, z)</span>
+        </div>
+
+        <div id="qubit-telemetry-list" class="space-y-2">
+          <!-- Dynamically populated -->
+        </div>
+      </section>
+
+      <!-- 3. PROJECTIVE MEASUREMENT & 1000-SHOT SAMPLER -->
+      <section class="p-4">
+        <div class="flex items-center justify-between mb-2.5">
+          <h2 class="text-[11px] font-semibold tracking-[0.08em] uppercase text-slateMuted">
+            Measurement
+          </h2>
+          <div class="flex items-center gap-1.5">
+            <button onclick="runShotSampler()" title="Simulate 1,000 projective shots without collapsing state"
+              class="px-2 py-1 bg-well hover:bg-paper border border-hairline font-mono text-[10.5px] font-medium text-ink transition-colors cursor-pointer">
+              1000 Shots
+            </button>
+            <button onclick="measureAndCollapse()" title="Projective measurement (Space)"
+              class="px-2.5 py-1 bg-signal hover:bg-ink text-white border border-signal hover:border-ink font-mono text-[10.5px] font-semibold transition-colors cursor-pointer">
+              Measure ⟂
+            </button>
+          </div>
+        </div>
+
+        <!-- Theoretical Born Probabilities -->
+        <div id="measurement-bars" class="space-y-2">
+          <!-- Dynamically populated -->
+        </div>
+
+        <!-- 1000-Shot Empirical Histogram -->
+        <div id="shots-histogram-box" class="hidden mt-3 pt-2.5 border-t border-hairline">
+          <div class="flex items-center justify-between text-[10.5px] font-mono font-semibold text-signal mb-1.5">
+            <span>EMPIRICAL SAMPLE (N = 1,000)</span>
+            <button onclick="document.getElementById('shots-histogram-box').classList.add('hidden')" class="text-slateMuted hover:text-ink cursor-pointer">✕</button>
+          </div>
+          <div id="shots-bars" class="space-y-1.5"></div>
+        </div>
+      </section>
+
+      <!-- 4. MANUAL AMPLITUDE VECTOR INPUT -->
+      <section class="p-4">
+        <div class="flex items-center justify-between mb-2.5">
+          <h2 class="text-[11px] font-semibold tracking-[0.08em] uppercase text-slateMuted">
+            Manual Amplitudes
+          </h2>
+          <label class="flex items-center gap-1.5 text-[11px] font-mono text-slateMuted cursor-pointer select-none">
+            <input id="auto-norm-check" type="checkbox" checked class="accent-signal cursor-pointer" />
+            <span>Auto-norm</span>
+          </label>
+        </div>
+
+        <div id="manual-inputs-list" class="space-y-1.5 max-h-[190px] overflow-y-auto pr-0.5">
+          <!-- Dynamically populated -->
+        </div>
+
+        <button onclick="applyManualState()"
+          class="mt-3 w-full py-2 px-3 bg-ink hover:bg-signal text-alabaster font-mono text-[11.5px] font-semibold transition-colors cursor-pointer">
+          Apply State Vector
+        </button>
+      </section>
+
+      <!-- 5. EQUATION NOTES & SYMBOL PALETTE -->
+      <section class="p-4">
+        <h2 class="text-[11px] font-semibold tracking-[0.08em] uppercase text-slateMuted mb-2.5">
+          Lab Notes &amp; Notation
+        </h2>
+
+        <div class="flex flex-wrap gap-1 mb-2">
+          <button type="button" onclick="insertSymbol('|0⟩')" class="px-1.5 py-0.5 bg-well hover:bg-ink hover:text-alabaster border border-hairline font-mono text-[11px] text-ink cursor-pointer">|0⟩</button>
+          <button type="button" onclick="insertSymbol('|1⟩')" class="px-1.5 py-0.5 bg-well hover:bg-ink hover:text-alabaster border border-hairline font-mono text-[11px] text-ink cursor-pointer">|1⟩</button>
+          <button type="button" onclick="insertSymbol('|+⟩')" class="px-1.5 py-0.5 bg-well hover:bg-ink hover:text-alabaster border border-hairline font-mono text-[11px] text-ink cursor-pointer">|+⟩</button>
+          <button type="button" onclick="insertSymbol('|-⟩')" class="px-1.5 py-0.5 bg-well hover:bg-ink hover:text-alabaster border border-hairline font-mono text-[11px] text-ink cursor-pointer">|-⟩</button>
+          <button type="button" onclick="insertSymbol('|ψ⟩')" class="px-1.5 py-0.5 bg-well hover:bg-ink hover:text-alabaster border border-hairline font-mono text-[11px] text-cobalt cursor-pointer">|ψ⟩</button>
+          <button type="button" onclick="insertSymbol('1/√2')" class="px-1.5 py-0.5 bg-well hover:bg-ink hover:text-alabaster border border-hairline font-mono text-[11px] text-ink cursor-pointer">1/√2</button>
+          <button type="button" onclick="insertSymbol('α')" class="px-1.5 py-0.5 bg-well hover:bg-ink hover:text-alabaster border border-hairline font-mono text-[11px] text-ink cursor-pointer">α</button>
+          <button type="button" onclick="insertSymbol('β')" class="px-1.5 py-0.5 bg-well hover:bg-ink hover:text-alabaster border border-hairline font-mono text-[11px] text-ink cursor-pointer">β</button>
+          <button type="button" onclick="insertSymbol('θ')" class="px-1.5 py-0.5 bg-well hover:bg-ink hover:text-alabaster border border-hairline font-mono text-[11px] text-signal cursor-pointer">θ</button>
+          <button type="button" onclick="insertSymbol('φ')" class="px-1.5 py-0.5 bg-well hover:bg-ink hover:text-alabaster border border-hairline font-mono text-[11px] text-signal cursor-pointer">φ</button>
+          <button type="button" onclick="insertSymbol('π')" class="px-1.5 py-0.5 bg-well hover:bg-ink hover:text-alabaster border border-hairline font-mono text-[11px] text-ink cursor-pointer">π</button>
+          <button type="button" onclick="insertSymbol('⊗')" class="px-1.5 py-0.5 bg-well hover:bg-ink hover:text-alabaster border border-hairline font-mono text-[11px] text-viridian cursor-pointer">⊗</button>
+        </div>
+
+        <div class="flex gap-1.5">
+          <input id="note-input" type="text" value="|ψ⟩ = cos(θ/2)|0⟩ + e^{iφ}sin(θ/2)|1⟩"
+            placeholder="Enter quantum expression..."
+            class="flex-1 px-2.5 py-1.5 bg-well border border-hairline focus:border-ink focus:outline-none font-mono text-[11.5px] text-ink" />
+          <button onclick="saveEquationNote()"
+            class="px-3 py-1.5 bg-alabaster hover:bg-well border border-hairline text-[11.5px] font-mono font-medium text-ink cursor-pointer">
+            Save
+          </button>
+        </div>
+
+        <div id="saved-notes-list" class="mt-2.5 space-y-1.5"></div>
+      </section>
+    </aside>
+
+    <!-- ==================== CENTER ARCHITECTURAL 3D BLOCH SPHERE STAGE ==================== -->
+    <section id="viewport-container" class="flex-1 relative min-h-[460px] lg:min-h-0 bg-stage overflow-hidden select-none">
+
+      <!-- Top-Left Camera Angle Switcher -->
+      <div class="absolute top-3.5 left-3.5 z-20 flex flex-wrap items-center bg-alabaster border border-hairline divide-x divide-hairline">
+        <span class="px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-wider text-slateMuted bg-well hidden sm:inline">View</span>
+        <button onclick="setCameraPreset('iso')" class="cam-pill px-2.5 py-1 hover:bg-well font-mono text-[11px] font-medium text-ink transition-colors cursor-pointer">
+          3D Iso
+        </button>
+        <button onclick="setCameraPreset('top')" class="cam-pill px-2.5 py-1 hover:bg-well font-mono text-[11px] font-medium text-cobalt transition-colors cursor-pointer">
+          Top Z
+        </button>
+        <button onclick="setCameraPreset('sideX')" class="cam-pill px-2.5 py-1 hover:bg-well font-mono text-[11px] font-medium text-signal transition-colors cursor-pointer">
+          Side X
+        </button>
+        <button onclick="setCameraPreset('sideY')" class="cam-pill px-2.5 py-1 hover:bg-well font-mono text-[11px] font-medium text-viridian transition-colors cursor-pointer">
+          Side Y
+        </button>
+      </div>
+
+      <!-- Top-Right Spherical Angle Readout (θ, φ) -->
+      <div class="absolute top-3.5 right-3.5 z-20 flex items-center bg-alabaster border border-hairline divide-x divide-hairline font-mono text-[11.5px] tabular">
+        <div class="px-3 py-1">
+          <span class="text-slateMuted">θ </span>
+          <span id="hud-theta" class="text-signal font-semibold">0.0°</span>
+        </div>
+        <div class="px-3 py-1">
+          <span class="text-slateMuted">φ </span>
+          <span id="hud-phi" class="text-cobalt font-semibold">0.0°</span>
+        </div>
+      </div>
+
+      <!-- Bottom Axis Legend & Manipulation Hint -->
+      <div class="absolute bottom-3 left-3.5 right-3.5 z-20 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
+        <div class="flex items-center gap-3.5 px-3 py-1 bg-alabaster border border-hairline font-mono text-[10.5px]">
+          <span class="flex items-center gap-1.5 text-cobalt font-semibold"><span class="w-2 h-2 bg-cobalt"></span>Z (|0⟩/|1⟩)</span>
+          <span class="flex items-center gap-1.5 text-signal font-semibold"><span class="w-2 h-2 bg-signal"></span>X (|+⟩/|-⟩)</span>
+          <span class="flex items-center gap-1.5 text-viridian font-semibold"><span class="w-2 h-2 bg-viridian"></span>Y (|i⟩/|-i⟩)</span>
+        </div>
+        <div class="px-2.5 py-1 bg-alabaster/90 border border-hairline font-mono text-[10px] text-slateMuted hidden sm:block">
+          Drag: Orbit · Scroll: Zoom · Double-Click: Reset Camera
+        </div>
+      </div>
+
+      <!-- Three.js Canvas Mount -->
+      <div id="three-canvas-host" class="w-full h-full cursor-grab active:cursor-grabbing"></div>
+
+      <!-- 3D Projected HTML Ket Labels Layer -->
+      <div id="projected-labels-layer" class="absolute inset-0 pointer-events-none overflow-hidden"></div>
+    </section>
+
+    <!-- ==================== RIGHT DOCKED PANEL: QUANTUM REGISTER & OPERATORS ==================== -->
+    <aside class="w-full lg:w-[300px] xl:w-[320px] bg-alabaster border-t lg:border-t-0 lg:border-l border-hairline lg:overflow-y-auto shrink-0 divide-y divide-hairline z-20">
+
+      <!-- 1. REGISTER CONFIGURATION -->
+      <section class="p-4">
+        <h2 class="text-[11px] font-semibold tracking-[0.08em] uppercase text-slateMuted mb-3">
+          Register Configuration
+        </h2>
+
+        <!-- Qubit Count Stepper -->
+        <div class="bg-well border border-hairline px-3.5 py-2.5 flex items-center justify-between mb-3">
+          <div>
+            <div class="text-[13px] font-semibold text-ink">Qubit Count</div>
+            <div class="font-mono text-[11px] text-slateMuted tabular">Hilbert space: <span id="hilbert-dim-label" class="text-ink font-medium">2¹ = 2</span></div>
+          </div>
+          <div class="flex items-center border border-hairline bg-alabaster">
+            <button id="dec-qubits-btn" onclick="changeQubitCount(-1)"
+              class="w-7 h-7 hover:bg-well disabled:opacity-35 text-ink font-mono font-bold transition-colors cursor-pointer">
+              −
+            </button>
+            <span id="qubit-count-val" class="w-7 text-center font-mono text-[14px] font-bold text-signal border-x border-hairline tabular">1</span>
+            <button id="inc-qubits-btn" onclick="changeQubitCount(1)"
+              class="w-7 h-7 hover:bg-well disabled:opacity-35 text-ink font-mono font-bold transition-colors cursor-pointer">
+              +
+            </button>
+          </div>
+        </div>
+
+        <!-- Target Qubit Selector -->
+        <div class="flex items-center justify-between">
+          <span class="font-mono text-[11px] font-medium text-slateMuted">TARGET QUBIT</span>
+          <div id="target-qubit-pills" class="flex items-center gap-1">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. SINGLE-QUBIT UNITARY GATES -->
+      <section class="p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-[11px] font-semibold tracking-[0.08em] uppercase text-slateMuted">
+            Single-Qubit Gates
+          </h2>
+          <span class="font-mono text-[10px] text-slateMuted">Hover for matrix</span>
+        </div>
+
+        <div class="grid grid-cols-3 gap-1.5">
+          <!-- H Gate -->
+          <button onclick="applySingleGate('H')"
+            class="gate-btn py-2.5 px-2 bg-well hover:bg-ink border border-hairline hover:border-ink active:translate-y-px flex flex-col items-center transition-colors cursor-pointer group">
+            <span class="font-mono text-[15px] font-bold text-ink group-hover:text-alabaster">H</span>
+            <span class="text-[10px] text-slateMuted group-hover:text-paper/80 mt-0.5">Hadamard</span>
+            <div class="gate-tooltip bg-ink text-alabaster px-2.5 py-1.5 border border-ink font-mono text-[10px] tabular">
+              1/√2 [ 1 &nbsp; 1 ; 1 &nbsp;-1 ]
+            </div>
+          </button>
+
+          <!-- X Gate -->
+          <button onclick="applySingleGate('X')"
+            class="gate-btn py-2.5 px-2 bg-well hover:bg-signal border border-hairline hover:border-signal active:translate-y-px flex flex-col items-center transition-colors cursor-pointer group">
+            <span class="font-mono text-[15px] font-bold text-signal group-hover:text-white">X</span>
+            <span class="text-[10px] text-slateMuted group-hover:text-white/90 mt-0.5">Pauli-X</span>
+            <div class="gate-tooltip bg-ink text-alabaster px-2.5 py-1.5 border border-ink font-mono text-[10px] tabular">
+              [ 0 &nbsp; 1 ; 1 &nbsp; 0 ]
+            </div>
+          </button>
+
+          <!-- Y Gate -->
+          <button onclick="applySingleGate('Y')"
+            class="gate-btn py-2.5 px-2 bg-well hover:bg-viridian border border-hairline hover:border-viridian active:translate-y-px flex flex-col items-center transition-colors cursor-pointer group">
+            <span class="font-mono text-[15px] font-bold text-viridian group-hover:text-white">Y</span>
+            <span class="text-[10px] text-slateMuted group-hover:text-white/90 mt-0.5">Pauli-Y</span>
+            <div class="gate-tooltip bg-ink text-alabaster px-2.5 py-1.5 border border-ink font-mono text-[10px] tabular">
+              [ 0 &nbsp;-i ; i &nbsp; 0 ]
+            </div>
+          </button>
+
+          <!-- Z Gate -->
+          <button onclick="applySingleGate('Z')"
+            class="gate-btn py-2.5 px-2 bg-well hover:bg-cobalt border border-hairline hover:border-cobalt active:translate-y-px flex flex-col items-center transition-colors cursor-pointer group">
+            <span class="font-mono text-[15px] font-bold text-cobalt group-hover:text-white">Z</span>
+            <span class="text-[10px] text-slateMuted group-hover:text-white/90 mt-0.5">Pauli-Z</span>
+            <div class="gate-tooltip bg-ink text-alabaster px-2.5 py-1.5 border border-ink font-mono text-[10px] tabular">
+              [ 1 &nbsp; 0 ; 0 &nbsp;-1 ]
+            </div>
+          </button>
+
+          <!-- S Gate -->
+          <button onclick="applySingleGate('S')"
+            class="gate-btn py-2.5 px-2 bg-well hover:bg-ink border border-hairline hover:border-ink active:translate-y-px flex flex-col items-center transition-colors cursor-pointer group">
+            <span class="font-mono text-[15px] font-bold text-ink group-hover:text-alabaster">S</span>
+            <span class="text-[10px] text-slateMuted group-hover:text-paper/80 mt-0.5">Phase (π/2)</span>
+            <div class="gate-tooltip bg-ink text-alabaster px-2.5 py-1.5 border border-ink font-mono text-[10px] tabular">
+              [ 1 &nbsp; 0 ; 0 &nbsp; i ]
+            </div>
+          </button>
+
+          <!-- T Gate -->
+          <button onclick="applySingleGate('T')"
+            class="gate-btn py-2.5 px-2 bg-well hover:bg-ink border border-hairline hover:border-ink active:translate-y-px flex flex-col items-center transition-colors cursor-pointer group">
+            <span class="font-mono text-[15px] font-bold text-ink group-hover:text-alabaster">T</span>
+            <span class="text-[10px] text-slateMuted group-hover:text-paper/80 mt-0.5">T-Gate (π/4)</span>
+            <div class="gate-tooltip bg-ink text-alabaster px-2.5 py-1.5 border border-ink font-mono text-[10px] tabular">
+              [ 1 &nbsp; 0 ; 0 &nbsp; e^(iπ/4) ]
+            </div>
+          </button>
+        </div>
+      </section>
+
+      <!-- 3. TWO-QUBIT ENTANGLING GATES (Shown when Qubits >= 2) -->
+      <section id="multi-qubit-gates-panel" class="p-4 hidden">
+        <div class="flex items-center justify-between mb-2.5">
+          <h2 class="text-[11px] font-semibold tracking-[0.08em] uppercase text-ink">
+            Entangling Gates
+          </h2>
+          <span id="entangle-pair-badge" class="font-mono text-[11px] font-semibold text-signal">Ctrl Q0 → Tgt Q1</span>
+        </div>
+
+        <div class="flex items-center justify-between mb-2.5 text-[11px] font-mono">
+          <span class="text-slateMuted">CONTROL QUBIT</span>
+          <div id="control-qubit-pills" class="flex gap-1"></div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-1.5">
+          <button onclick="applyTwoQubitGate('CNOT')"
+            class="py-2 px-1.5 bg-well hover:bg-signal hover:text-white border border-hairline hover:border-signal active:translate-y-px flex flex-col items-center transition-colors cursor-pointer group">
+            <span class="font-mono text-[12.5px] font-bold text-ink group-hover:text-white">CNOT</span>
+            <span class="text-[9.5px] text-slateMuted group-hover:text-white/90">Ctrl-X</span>
+          </button>
+          <button onclick="applyTwoQubitGate('CZ')"
+            class="py-2 px-1.5 bg-well hover:bg-cobalt hover:text-white border border-hairline hover:border-cobalt active:translate-y-px flex flex-col items-center transition-colors cursor-pointer group">
+            <span class="font-mono text-[12.5px] font-bold text-ink group-hover:text-white">CZ</span>
+            <span class="text-[9.5px] text-slateMuted group-hover:text-white/90">Ctrl-Z</span>
+          </button>
+          <button onclick="applyTwoQubitGate('SWAP')"
+            class="py-2 px-1.5 bg-well hover:bg-ink hover:text-alabaster border border-hairline hover:border-ink active:translate-y-px flex flex-col items-center transition-colors cursor-pointer group">
+            <span class="font-mono text-[12.5px] font-bold text-ink group-hover:text-alabaster">SWAP</span>
+            <span class="text-[9.5px] text-slateMuted group-hover:text-paper/80">Exchange</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- 4. CONTINUOUS ROTATION OPERATORS -->
+      <section class="p-4 space-y-3.5">
+        <div class="flex items-center justify-between">
+          <h2 class="text-[11px] font-semibold tracking-[0.08em] uppercase text-slateMuted">
+            Rotation Operators
+          </h2>
+          <span class="font-mono text-[10px] text-slateMuted tabular">[-180°, +180°]</span>
+        </div>
+
+        <!-- Rx(θ) -->
+        <div class="bg-well border border-hairline p-3">
+          <div class="flex items-center justify-between mb-2">
+            <span class="font-mono text-[12px] font-bold text-signal">Rₓ(θ)</span>
+            <span id="rx-val-label" class="font-mono text-[12px] font-semibold text-ink tabular">0°</span>
+          </div>
+          <input id="rx-slider" type="range" min="-180" max="180" step="1" value="0"
+            oninput="setRotationSlider('x', this.value)" class="q-slider mb-2.5" />
+          <div class="grid grid-cols-4 gap-1 mb-2">
+            <button onclick="snapRotation('x', -90)" class="py-0.5 bg-alabaster hover:bg-ink hover:text-alabaster border border-hairline font-mono text-[10px] text-slateMuted cursor-pointer tabular">-90°</button>
+            <button onclick="snapRotation('x', -45)" class="py-0.5 bg-alabaster hover:bg-ink hover:text-alabaster border border-hairline font-mono text-[10px] text-slateMuted cursor-pointer tabular">-45°</button>
+            <button onclick="snapRotation('x', 45)" class="py-0.5 bg-alabaster hover:bg-ink hover:text-alabaster border border-hairline font-mono text-[10px] text-slateMuted cursor-pointer tabular">+45°</button>
+            <button onclick="snapRotation('x', 90)" class="py-0.5 bg-alabaster hover:bg-ink hover:text-alabaster border border-hairline font-mono text-[10px] text-slateMuted cursor-pointer tabular">+90°</button>
+          </div>
+          <button onclick="applyRotationGate('x')"
+            class="w-full py-1.5 bg-alabaster hover:bg-signal hover:text-white border border-hairline hover:border-signal font-mono text-[11.5px] font-semibold text-signal transition-colors cursor-pointer">
+            Apply Rₓ(θ)
+          </button>
+        </div>
+
+        <!-- Ry(θ) -->
+        <div class="bg-well border border-hairline p-3">
+          <div class="flex items-center justify-between mb-2">
+            <span class="font-mono text-[12px] font-bold text-viridian">R_y(θ)</span>
+            <span id="ry-val-label" class="font-mono text-[12px] font-semibold text-ink tabular">0°</span>
+          </div>
+          <input id="ry-slider" type="range" min="-180" max="180" step="1" value="0"
+            oninput="setRotationSlider('y', this.value)" class="q-slider mb-2.5" />
+          <div class="grid grid-cols-4 gap-1 mb-2">
+            <button onclick="snapRotation('y', -90)" class="py-0.5 bg-alabaster hover:bg-ink hover:text-alabaster border border-hairline font-mono text-[10px] text-slateMuted cursor-pointer tabular">-90°</button>
+            <button onclick="snapRotation('y', -45)" class="py-0.5 bg-alabaster hover:bg-ink hover:text-alabaster border border-hairline font-mono text-[10px] text-slateMuted cursor-pointer tabular">-45°</button>
+            <button onclick="snapRotation('y', 45)" class="py-0.5 bg-alabaster hover:bg-ink hover:text-alabaster border border-hairline font-mono text-[10px] text-slateMuted cursor-pointer tabular">+45°</button>
+            <button onclick="snapRotation('y', 90)" class="py-0.5 bg-alabaster hover:bg-ink hover:text-alabaster border border-hairline font-mono text-[10px] text-slateMuted cursor-pointer tabular">+90°</button>
+          </div>
+          <button onclick="applyRotationGate('y')"
+            class="w-full py-1.5 bg-alabaster hover:bg-viridian hover:text-white border border-hairline hover:border-viridian font-mono text-[11.5px] font-semibold text-viridian transition-colors cursor-pointer">
+            Apply R_y(θ)
+          </button>
+        </div>
+
+        <!-- Rz(θ) -->
+        <div class="bg-well border border-hairline p-3">
+          <div class="flex items-center justify-between mb-2">
+            <span class="font-mono text-[12px] font-bold text-cobalt">R_z(θ)</span>
+            <span id="rz-val-label" class="font-mono text-[12px] font-semibold text-ink tabular">0°</span>
+          </div>
+          <input id="rz-slider" type="range" min="-180" max="180" step="1" value="0"
+            oninput="setRotationSlider('z', this.value)" class="q-slider mb-2.5" />
+          <div class="grid grid-cols-4 gap-1 mb-2">
+            <button onclick="snapRotation('z', -90)" class="py-0.5 bg-alabaster hover:bg-ink hover:text-alabaster border border-hairline font-mono text-[10px] text-slateMuted cursor-pointer tabular">-90°</button>
+            <button onclick="snapRotation('z', -45)" class="py-0.5 bg-alabaster hover:bg-ink hover:text-alabaster border border-hairline font-mono text-[10px] text-slateMuted cursor-pointer tabular">-45°</button>
+            <button onclick="snapRotation('z', 45)" class="py-0.5 bg-alabaster hover:bg-ink hover:text-alabaster border border-hairline font-mono text-[10px] text-slateMuted cursor-pointer tabular">+45°</button>
+            <button onclick="snapRotation('z', 90)" class="py-0.5 bg-alabaster hover:bg-ink hover:text-alabaster border border-hairline font-mono text-[10px] text-slateMuted cursor-pointer tabular">+90°</button>
+          </div>
+          <button onclick="applyRotationGate('z')"
+            class="w-full py-1.5 bg-alabaster hover:bg-cobalt hover:text-white border border-hairline hover:border-cobalt font-mono text-[11.5px] font-semibold text-cobalt transition-colors cursor-pointer">
+            Apply R_z(θ)
+          </button>
+        </div>
+      </section>
+    </aside>
+  </main>
+
+  <!-- ==================== MODAL: LABORATORY EXPERIMENTS & PRESETS ==================== -->
+  <div id="guide-modal" class="hidden fixed inset-0 z-50 bg-ink/40 flex items-center justify-center p-4" onclick="closeModalOnBackdrop(event, 'guide-modal')">
+    <div class="bg-alabaster border border-ink max-w-xl w-full p-6">
+      <div class="flex items-center justify-between pb-3.5 border-b border-hairline">
+        <div>
+          <h3 class="text-[15px] font-bold uppercase tracking-wide text-ink">Laboratory Experiments &amp; Presets</h3>
+          <p class="font-mono text-[11px] text-slateMuted mt-0.5">Standard quantum state preparation &amp; entanglement protocols</p>
+        </div>
+        <button onclick="closeModal('guide-modal')" class="w-8 h-8 border border-hairline hover:bg-ink hover:text-alabaster text-ink font-mono flex items-center justify-center cursor-pointer">✕</button>
+      </div>
+
+      <div class="mt-4 space-y-2 max-h-[65vh] overflow-y-auto pr-1">
+        <button onclick="loadExperiment('superposition')"
+          class="w-full text-left p-3.5 bg-well hover:bg-paper border border-hairline hover:border-ink transition-colors cursor-pointer group">
+          <div class="flex items-center justify-between">
+            <span class="font-semibold text-[13.5px] text-ink">01. Equal Superposition |+⟩</span>
+            <span class="font-mono text-[11px] text-cobalt bg-alabaster border border-hairline px-2 py-0.5">H |0⟩</span>
+          </div>
+          <p class="text-[12px] text-slateMuted mt-1">Places Q0 on the equator at +X (θ = 90°, φ = 0°) with equal 50.0% / 50.0% measurement probabilities.</p>
+        </button>
+
+        <button onclick="loadExperiment('phase')"
+          class="w-full text-left p-3.5 bg-well hover:bg-paper border border-hairline hover:border-ink transition-colors cursor-pointer group">
+          <div class="flex items-center justify-between">
+            <span class="font-semibold text-[13.5px] text-ink">02. Phase Rotation / Imaginary |i⟩</span>
+            <span class="font-mono text-[11px] text-viridian bg-alabaster border border-hairline px-2 py-0.5">S · H |0⟩</span>
+          </div>
+          <p class="text-[12px] text-slateMuted mt-1">Rotates the azimuthal phase φ by +90° along the equator to +Y without altering computational basis probabilities.</p>
+        </button>
+
+        <button onclick="loadExperiment('bell')"
+          class="w-full text-left p-3.5 bg-well hover:bg-paper border border-hairline hover:border-ink transition-colors cursor-pointer group">
+          <div class="flex items-center justify-between">
+            <span class="font-semibold text-[13.5px] text-ink">03. Bell Entangled State |Φ⁺⟩</span>
+            <span class="font-mono text-[11px] text-signal bg-alabaster border border-hairline px-2 py-0.5">CNOT(H⊗I)|00⟩</span>
+          </div>
+          <p class="text-[12px] text-slateMuted mt-1">Entangles 2 qubits into 1/√2(|00⟩ + |11⟩). Reduced purity drops to 50% and individual Bloch vectors collapse to the origin.</p>
+        </button>
+
+        <button onclick="loadExperiment('ghz')"
+          class="w-full text-left p-3.5 bg-well hover:bg-paper border border-hairline hover:border-ink transition-colors cursor-pointer group">
+          <div class="flex items-center justify-between">
+            <span class="font-semibold text-[13.5px] text-ink">04. Three-Qubit GHZ State</span>
+            <span class="font-mono text-[11px] text-ink bg-alabaster border border-hairline px-2 py-0.5">1/√2(|000⟩+|111⟩)</span>
+          </div>
+          <p class="text-[12px] text-slateMuted mt-1">Prepares a tripartite maximally entangled Greenberger–Horne–Zeilinger state across Q0, Q1, and Q2.</p>
+        </button>
+
+        <button onclick="loadExperiment('rabi')"
+          class="w-full text-left p-3.5 bg-well hover:bg-paper border border-hairline hover:border-ink transition-colors cursor-pointer group">
+          <div class="flex items-center justify-between">
+            <span class="font-semibold text-[13.5px] text-ink">05. Rabi Oscillation Sweep</span>
+            <span class="font-mono text-[11px] text-signal bg-alabaster border border-hairline px-2 py-0.5">Rₓ(ωt)</span>
+          </div>
+          <p class="text-[12px] text-slateMuted mt-1">Continuously drives Q0 around the X-axis through a full 360° Rabi precession cycle on the Bloch sphere.</p>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL: KEYBOARD SHORTCUTS ==================== -->
+  <div id="shortcuts-modal" class="hidden fixed inset-0 z-50 bg-ink/40 flex items-center justify-center p-4" onclick="closeModalOnBackdrop(event, 'shortcuts-modal')">
+    <div class="bg-alabaster border border-ink max-w-md w-full p-6">
+      <div class="flex items-center justify-between pb-3 border-b border-hairline">
+        <h3 class="text-[14px] font-bold text-ink font-mono uppercase tracking-wider">Keyboard Bindings</h3>
+        <button onclick="closeModal('shortcuts-modal')" class="w-7 h-7 border border-hairline hover:bg-ink hover:text-alabaster text-ink font-mono flex items-center justify-center cursor-pointer">✕</button>
+      </div>
+
+      <div class="mt-3 divide-y divide-hairline text-[12.5px]">
+        <div class="py-2.5 flex items-center justify-between">
+          <span class="text-slateMuted">Apply Single-Qubit Gates</span>
+          <div class="flex gap-1 font-mono text-[11px]">
+            <kbd class="px-2 py-0.5 bg-well border border-hairline text-ink">H</kbd>
+            <kbd class="px-2 py-0.5 bg-well border border-hairline text-signal">X</kbd>
+            <kbd class="px-2 py-0.5 bg-well border border-hairline text-viridian">Y</kbd>
+            <kbd class="px-2 py-0.5 bg-well border border-hairline text-cobalt">Z</kbd>
+            <kbd class="px-2 py-0.5 bg-well border border-hairline text-ink">S</kbd>
+            <kbd class="px-2 py-0.5 bg-well border border-hairline text-ink">T</kbd>
+          </div>
+        </div>
+        <div class="py-2.5 flex items-center justify-between">
+          <span class="text-slateMuted">Select Target Qubit</span>
+          <div class="flex gap-1 font-mono text-[11px]">
+            <kbd class="px-2 py-0.5 bg-well border border-hairline text-ink">1</kbd>
+            <kbd class="px-2 py-0.5 bg-well border border-hairline text-ink">2</kbd>
+            <kbd class="px-2 py-0.5 bg-well border border-hairline text-ink">3</kbd>
+          </div>
+        </div>
+        <div class="py-2.5 flex items-center justify-between">
+          <span class="text-slateMuted">Projective Measurement</span>
+          <kbd class="px-2.5 py-0.5 bg-well border border-hairline font-mono text-[11px] text-signal">Space</kbd>
+        </div>
+        <div class="py-2.5 flex items-center justify-between">
+          <span class="text-slateMuted">Reset Register to |0⟩</span>
+          <kbd class="px-2.5 py-0.5 bg-well border border-hairline font-mono text-[11px] text-ink">R</kbd>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== TOAST NOTIFICATION CONTAINER ==================== -->
+  <div id="toast-host" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 pointer-events-none"></div>
+
+  <!-- ==================== QUANTUM ENGINE & 3D GRAPHICS SCRIPT ==================== -->
+  <script>
+    /**
+     * Complex Arithmetic Helpers
+     */
+    const C = {
+      add: (a, b) => ({ re: a.re + b.re, im: a.im + b.im }),
+      sub: (a, b) => ({ re: a.re - b.re, im: a.im - b.im }),
+      mul: (a, b) => ({
+        re: a.re * b.re - a.im * b.im,
+        im: a.re * b.im + a.im * b.re
+      }),
+      conj: (a) => ({ re: a.re, im: -a.im }),
+      abs2: (a) => a.re * a.re + a.im * a.im,
+      abs: (a) => Math.hypot(a.re, a.im),
+      arg: (a) => Math.atan2(a.im, a.re),
+      scale: (a, s) => ({ re: a.re * s, im: a.im * s }),
+      expI: (theta) => ({ re: Math.cos(theta), im: Math.sin(theta) })
+    };
+
+    const INV_SQRT2 = 1 / Math.SQRT2;
+
+    /**
+     * Standard Unitary Gate Matrices
+     */
+    const GATES = {
+      H: [
+        [{ re: INV_SQRT2, im: 0 }, { re: INV_SQRT2, im: 0 }],
+        [{ re: INV_SQRT2, im: 0 }, { re: -INV_SQRT2, im: 0 }]
+      ],
+      X: [
+        [{ re: 0, im: 0 }, { re: 1, im: 0 }],
+        [{ re: 1, im: 0 }, { re: 0, im: 0 }]
+      ],
+      Y: [
+        [{ re: 0, im: 0 }, { re: 0, im: -1 }],
+        [{ re: 0, im: 1 }, { re: 0, im: 0 }]
+      ],
+      Z: [
+        [{ re: 1, im: 0 }, { re: 0, im: 0 }],
+        [{ re: 0, im: 0 }, { re: -1, im: 0 }]
+      ],
+      S: [
+        [{ re: 1, im: 0 }, { re: 0, im: 0 }],
+        [{ re: 0, im: 0 }, { re: 0, im: 1 }]
+      ],
+      T: [
+        [{ re: 1, im: 0 }, { re: 0, im: 0 }],
+        [{ re: 0, im: 0 }, C.expI(Math.PI / 4)]
+      ]
+    };
+
+    function getRotationMatrix(axis, deg) {
+      const rad = (deg * Math.PI) / 180;
+      const c = Math.cos(rad / 2);
+      const s = Math.sin(rad / 2);
+      if (axis === 'x') {
+        return [
+          [{ re: c, im: 0 }, { re: 0, im: -s }],
+          [{ re: 0, im: -s }, { re: c, im: 0 }]
+        ];
+      }
+      if (axis === 'y') {
+        return [
+          [{ re: c, im: 0 }, { re: -s, im: 0 }],
+          [{ re: s, im: 0 }, { re: c, im: 0 }]
+        ];
+      }
+      return [
+        [{ re: c, im: -s }, { re: 0, im: 0 }],
+        [{ re: 0, im: 0 }, { re: c, im: s }]
+      ];
+    }
+
+    /**
+     * Architectural Instrument Qubit Palette
+     */
+    const QUBIT_PALETTE = [
+      { hex: '#E63B19', three: 0xE63B19, label: 'Signal Orange' },
+      { hex: '#0F52BA', three: 0x0F52BA, label: 'Cobalt Blue' },
+      { hex: '#0D7A5F', three: 0x0D7A5F, label: 'Viridian' }
+    ];
+
+    const state = {
+      numQubits: 1,
+      targetQubit: 0,
+      controlQubit: 0,
+      viewMode: 'single', // 'single' | 'multi'
+      diracFormat: 'cartesian', // 'cartesian' | 'polar'
+      amplitudes: [{ re: 1, im: 0 }, { re: 0, im: 0 }],
+      rotAngles: { x: 0, y: 0, z: 0 },
+      notes: [],
+      rabiTimer: null
+    };
+
+    /**
+     * Minimal Architectural Toast
+     */
+    let toastTimer = null;
+    function showToast(msg) {
+      const host = document.getElementById('toast-host');
+      host.innerHTML = `
+        <div class="toast-anim px-4 py-2 bg-ink text-alabaster border border-ink font-mono text-[11.5px]">
+          ${msg}
+        </div>
+      `;
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { host.innerHTML = ''; }, 2400);
+    }
+
+    /**
+     * Modals & View Mode Switching
+     */
+    function openModal(id) {
+      document.getElementById(id).classList.remove('hidden');
+    }
+    function closeModal(id) {
+      document.getElementById(id).classList.add('hidden');
+    }
+    function closeModalOnBackdrop(e, id) {
+      if (e.target.id === id) closeModal(id);
+    }
+
+    function setViewMode(mode) {
+      state.viewMode = mode;
+      const singleBtn = document.getElementById('nav-tab-single');
+      const multiBtn = document.getElementById('nav-tab-multi');
+
+      const activeClasses = ['bg-alabaster', 'text-ink', 'border-hairline', 'font-semibold'];
+      const inactiveClasses = ['text-slateMuted', 'hover:text-ink', 'border-transparent'];
+
+      if (mode === 'single') {
+        singleBtn.classList.add(...activeClasses);
+        singleBtn.classList.remove(...inactiveClasses);
+        multiBtn.classList.remove(...activeClasses);
+        multiBtn.classList.add(...inactiveClasses);
+      } else {
+        multiBtn.classList.add(...activeClasses);
+        multiBtn.classList.remove(...inactiveClasses);
+        singleBtn.classList.remove(...activeClasses);
+        singleBtn.classList.add(...inactiveClasses);
+      }
+
+      rebuildSceneSpheres();
+      syncUI();
+    }
+
+    function setDiracFormat(fmt) {
+      state.diracFormat = fmt;
+      const cartBtn = document.getElementById('fmt-cartesian-btn');
+      const polarBtn = document.getElementById('fmt-polar-btn');
+      if (fmt === 'cartesian') {
+        cartBtn.className = 'px-2 py-0.5 bg-alabaster text-ink border border-hairline font-semibold cursor-pointer';
+        polarBtn.className = 'px-2 py-0.5 text-slateMuted hover:text-ink border border-transparent cursor-pointer';
+      } else {
+        polarBtn.className = 'px-2 py-0.5 bg-alabaster text-ink border border-hairline font-semibold cursor-pointer';
+        cartBtn.className = 'px-2 py-0.5 text-slateMuted hover:text-ink border border-transparent cursor-pointer';
+      }
+      document.getElementById('dirac-display').textContent = formatDiracNotation();
+    }
+
+    /**
+     * Core Quantum Simulation Engine
+     */
+    function initAmplitudes(n) {
+      const dim = 1 << n;
+      const amps = Array.from({ length: dim }, () => ({ re: 0, im: 0 }));
+      amps[0] = { re: 1, im: 0 };
+      return amps;
+    }
+
+    function normalizeAmplitudes(amps) {
+      let sum = 0;
+      for (const a of amps) sum += C.abs2(a);
+      if (sum < 1e-12) {
+        amps[0] = { re: 1, im: 0 };
+        return amps;
+      }
+      const inv = 1 / Math.sqrt(sum);
+      return amps.map((a) => C.scale(a, inv));
+    }
+
+    function applyUnitaryToQubit(U, q) {
+      const n = state.numQubits;
+      const dim = 1 << n;
+      const bitPos = n - 1 - q;
+      const mask = 1 << bitPos;
+      const next = [...state.amplitudes];
+
+      for (let i = 0; i < dim; i++) {
+        if ((i & mask) === 0) {
+          const i0 = i;
+          const i1 = i | mask;
+          const a0 = state.amplitudes[i0];
+          const a1 = state.amplitudes[i1];
+          next[i0] = C.add(C.mul(U[0][0], a0), C.mul(U[0][1], a1));
+          next[i1] = C.add(C.mul(U[1][0], a0), C.mul(U[1][1], a1));
+        }
+      }
+      state.amplitudes = normalizeAmplitudes(next);
+      syncUI();
+    }
+
+    function applySingleGate(name) {
+      stopRabiSweep();
+      const U = GATES[name];
+      if (!U) return;
+      applyUnitaryToQubit(U, state.targetQubit);
+    }
+
+    function setRotationSlider(axis, val) {
+      state.rotAngles[axis] = parseFloat(val);
+      document.getElementById(`r${axis}-val-label`).textContent = `${val}°`;
+    }
+
+    function snapRotation(axis, deg) {
+      document.getElementById(`r${axis}-slider`).value = deg;
+      setRotationSlider(axis, deg);
+    }
+
+    function applyRotationGate(axis) {
+      stopRabiSweep();
+      const deg = state.rotAngles[axis];
+      applyUnitaryToQubit(getRotationMatrix(axis, deg), state.targetQubit);
+    }
+
+    function applyTwoQubitGate(type) {
+      stopRabiSweep();
+      const n = state.numQubits;
+      if (n < 2) return;
+      const ctrl = state.controlQubit;
+      const tgt = state.targetQubit;
+      if (ctrl === tgt) {
+        showToast('Control and target qubits must be distinct');
+        return;
+      }
+
+      const dim = 1 << n;
+      const ctrlBit = n - 1 - ctrl;
+      const tgtBit = n - 1 - tgt;
+      const next = [...state.amplitudes];
+
+      if (type === 'CNOT') {
+        for (let i = 0; i < dim; i++) {
+          if (((i >> ctrlBit) & 1) === 1 && ((i >> tgtBit) & 1) === 0) {
+            const i1 = i | (1 << tgtBit);
+            [next[i], next[i1]] = [next[i1], next[i]];
+          }
+        }
+      } else if (type === 'CZ') {
+        for (let i = 0; i < dim; i++) {
+          if (((i >> ctrlBit) & 1) === 1 && ((i >> tgtBit) & 1) === 1) {
+            next[i] = C.scale(next[i], -1);
+          }
+        }
+      } else if (type === 'SWAP') {
+        for (let i = 0; i < dim; i++) {
+          const bC = (i >> ctrlBit) & 1;
+          const bT = (i >> tgtBit) & 1;
+          if (bC === 1 && bT === 0) {
+            const swapped = (i & ~(1 << ctrlBit)) | (1 << tgtBit);
+            [next[i], next[swapped]] = [next[swapped], next[i]];
+          }
+        }
+      }
+
+      state.amplitudes = next;
+      syncUI();
+    }
+
+    /**
+     * Partial Trace Reduced Density Matrix for Qubit q
+     * Computes Bloch vector (x, y, z), Purity Tr(ρ²), and Spherical Angles (θ, φ)
+     */
+    function computeQubitTelemetry(q) {
+      const n = state.numQubits;
+      const dim = 1 << n;
+      const bitPos = n - 1 - q;
+      const mask = 1 << bitPos;
+
+      let rho00 = 0;
+      let rho11 = 0;
+      let rho01 = { re: 0, im: 0 };
+
+      for (let i = 0; i < dim; i++) {
+        if ((i & mask) === 0) {
+          const a0 = state.amplitudes[i];
+          const a1 = state.amplitudes[i | mask];
+          rho00 += C.abs2(a0);
+          rho11 += C.abs2(a1);
+          rho01 = C.add(rho01, C.mul(a0, C.conj(a1)));
+        }
+      }
+
+      const x = 2 * rho01.re;
+      const y = -2 * rho01.im;
+      const z = rho00 - rho11;
+      const r = Math.min(1, Math.hypot(x, y, z));
+      const purity = 0.5 * (1 + r * r);
+
+      const thetaRad = r > 1e-5 ? Math.acos(Math.max(-1, Math.min(1, z / r))) : 0;
+      const phiRad = Math.hypot(x, y) > 1e-5 ? Math.atan2(y, x) : 0;
+
+      return {
+        x: Math.abs(x) < 1e-5 ? 0 : x,
+        y: Math.abs(y) < 1e-5 ? 0 : y,
+        z: Math.abs(z) < 1e-5 ? 0 : z,
+        r,
+        purity,
+        thetaDeg: (thetaRad * 180) / Math.PI,
+        phiDeg: (phiRad * 180) / Math.PI
+      };
+    }
+
+    /**
+     * Dirac Notation Formatting (Cartesian & Polar)
+     */
+    function formatAmplitudeTerm(c) {
+      if (state.diracFormat === 'polar') {
+        const mag = C.abs(c);
+        let ang = C.arg(c);
+        if (Math.abs(ang) < 1e-4) return mag.toFixed(3);
+        const piRatio = ang / Math.PI;
+        if (Math.abs(Math.abs(piRatio) - 1) < 1e-3) {
+          return `${(-mag).toFixed(3)}`;
+        }
+        const deg = Math.round((ang * 180) / Math.PI);
+        return `${mag.toFixed(3)}e^{i${deg}°}`;
+      }
+
+      const re = Math.abs(c.re) < 1e-4 ? 0 : c.re;
+      const im = Math.abs(c.im) < 1e-4 ? 0 : c.im;
+      if (im === 0) return re.toFixed(3);
+      if (re === 0) {
+        if (Math.abs(im - 1) < 1e-4) return 'i';
+        if (Math.abs(im + 1) < 1e-4) return '-i';
+        return `${im.toFixed(3)}i`;
+      }
+      const s = im >= 0 ? '+' : '-';
+      return `(${re.toFixed(3)}${s}${Math.abs(im).toFixed(3)}i)`;
+    }
+
+    function formatDiracNotation() {
+      const n = state.numQubits;
+      const dim = 1 << n;
+      const parts = [];
+
+      for (let i = 0; i < dim; i++) {
+        const amp = state.amplitudes[i];
+        if (C.abs2(amp) > 1e-7) {
+          const ket = `|${i.toString(2).padStart(n, '0')}⟩`;
+          const coeff = formatAmplitudeTerm(amp);
+          parts.push({ coeff, ket, neg: coeff.startsWith('-') });
+        }
+      }
+
+      if (!parts.length) return `1.000 |${'0'.repeat(n)}⟩`;
+      return parts
+        .map((p, idx) => {
+          if (idx === 0) return `${p.coeff} ${p.ket}`;
+          if (p.neg) return `- ${p.coeff.slice(1)} ${p.ket}`;
+          return `+ ${p.coeff} ${p.ket}`;
+        })
+        .join(' ');
+    }
+
+    /**
+     * Projective Measurement & 1000-Shot Sampler
+     */
+    function measureAndCollapse() {
+      stopRabiSweep();
+      const r = Math.random();
+      let acc = 0;
+      let outcome = 0;
+
+      for (let i = 0; i < state.amplitudes.length; i++) {
+        acc += C.abs2(state.amplitudes[i]);
+        if (r <= acc) {
+          outcome = i;
+          break;
+        }
+      }
+
+      const collapsed = Array.from({ length: state.amplitudes.length }, () => ({ re: 0, im: 0 }));
+      collapsed[outcome] = { re: 1, im: 0 };
+      state.amplitudes = collapsed;
+      syncUI();
+
+      const vp = document.getElementById('viewport-container');
+      vp.classList.remove('collapse-flash');
+      void vp.offsetWidth;
+      vp.classList.add('collapse-flash');
+
+      const ket = `|${outcome.toString(2).padStart(state.numQubits, '0')}⟩`;
+      showToast(`State collapsed to ${ket}`);
+    }
+
+    function runShotSampler() {
+      const N = 1000;
+      const dim = state.amplitudes.length;
+      const counts = new Array(dim).fill(0);
+      const cdf = [];
+      let sum = 0;
+      for (let i = 0; i < dim; i++) {
+        sum += C.abs2(state.amplitudes[i]);
+        cdf.push(sum);
+      }
+
+      for (let s = 0; s < N; s++) {
+        const u = Math.random();
+        for (let i = 0; i < dim; i++) {
+          if (u <= cdf[i]) {
+            counts[i]++;
+            break;
+          }
+        }
+      }
+
+      const box = document.getElementById('shots-histogram-box');
+      const bars = document.getElementById('shots-bars');
+      box.classList.remove('hidden');
+
+      bars.innerHTML = counts
+        .map((cnt, i) => {
+          const pct = ((cnt / N) * 100).toFixed(1);
+          const ket = `|${i.toString(2).padStart(state.numQubits, '0')}⟩`;
+          return `
+            <div class="flex items-center gap-2 font-mono text-[11px] tabular">
+              <span class="text-ink font-medium min-w-[36px]">${ket}</span>
+              <div class="flex-1 h-1.5 bg-well border border-hairline overflow-hidden">
+                <div class="h-full bg-signal" style="width: ${pct}%"></div>
+              </div>
+              <span class="text-signal font-semibold w-[74px] text-right">${cnt} (${pct}%)</span>
+            </div>
+          `;
+        })
+        .join('');
+    }
+
+    /**
+     * Register Qubit Controls
+     */
+    function changeQubitCount(delta) {
+      stopRabiSweep();
+      const next = Math.max(1, Math.min(3, state.numQubits + delta));
+      if (next === state.numQubits) return;
+
+      state.numQubits = next;
+      state.targetQubit = Math.min(state.targetQubit, next - 1);
+      state.controlQubit = state.targetQubit === 0 ? Math.min(1, next - 1) : 0;
+      state.amplitudes = initAmplitudes(next);
+
+      if (next > 1 && state.viewMode === 'single') {
+        setViewMode('multi');
+      } else {
+        rebuildSceneSpheres();
+        syncUI();
+      }
+    }
+
+    function selectTargetQubit(q) {
+      state.targetQubit = q;
+      if (state.controlQubit === q && state.numQubits > 1) {
+        state.controlQubit = (q + 1) % state.numQubits;
+      }
+      if (state.viewMode === 'single') {
+        rebuildSceneSpheres();
+      }
+      syncUI();
+    }
+
+    function selectControlQubit(q) {
+      state.controlQubit = q;
+      if (state.targetQubit === q && state.numQubits > 1) {
+        state.targetQubit = (q + 1) % state.numQubits;
+      }
+      syncUI();
+    }
+
+    function resetSimulator() {
+      stopRabiSweep();
+      state.amplitudes = initAmplitudes(state.numQubits);
+      state.rotAngles = { x: 0, y: 0, z: 0 };
+      ['x', 'y', 'z'].forEach((ax) => {
+        document.getElementById(`r${ax}-slider`).value = 0;
+        document.getElementById(`r${ax}-val-label`).textContent = '0°';
+      });
+      document.getElementById('shots-histogram-box').classList.add('hidden');
+      syncUI();
+      showToast('Register reset to ground state');
+    }
+
+    /**
+     * Manual State Application
+     */
+    function applyManualState() {
+      stopRabiSweep();
+      const dim = 1 << state.numQubits;
+      const autoNorm = document.getElementById('auto-norm-check').checked;
+      const raw = [];
+      let normSq = 0;
+
+      for (let i = 0; i < dim; i++) {
+        const re = parseFloat(document.getElementById(`man-re-${i}`)?.value || '0') || 0;
+        const im = parseFloat(document.getElementById(`man-im-${i}`)?.value || '0') || 0;
+        raw.push({ re, im });
+        normSq += re * re + im * im;
+      }
+
+      if (normSq < 1e-10) {
+        showToast('Error: Zero-norm state vector');
+        return;
+      }
+
+      state.amplitudes = autoNorm ? normalizeAmplitudes(raw) : raw;
+      syncUI();
+      showToast(autoNorm ? 'Normalized & applied state vector' : 'Applied unnormalized amplitudes');
+    }
+
+    /**
+     * Notes & Clipboard
+     */
+    function copyAndSaveDirac() {
+      const txt = formatDiracNotation();
+      const temp = document.createElement('textarea');
+      temp.value = txt;
+      document.body.appendChild(temp);
+      temp.select();
+      document.execCommand('copy');
+      document.body.removeChild(temp);
+
+      state.notes.unshift({ id: Date.now(), text: txt });
+      renderNotes();
+      showToast('Copied & logged Dirac state');
+    }
+
+    function insertSymbol(sym) {
+      const inp = document.getElementById('note-input');
+      const start = inp.selectionStart ?? inp.value.length;
+      const end = inp.selectionEnd ?? inp.value.length;
+      inp.value = inp.value.slice(0, start) + sym + inp.value.slice(end);
+      inp.focus();
+      inp.setSelectionRange(start + sym.length, start + sym.length);
+    }
+
+    function saveEquationNote() {
+      const inp = document.getElementById('note-input');
+      const val = inp.value.trim();
+      if (!val) return;
+      state.notes.unshift({ id: Date.now(), text: val });
+      renderNotes();
+      showToast('Saved equation note');
+    }
+
+    function deleteNote(id) {
+      state.notes = state.notes.filter((n) => n.id !== id);
+      renderNotes();
+    }
+
+    function renderNotes() {
+      const list = document.getElementById('saved-notes-list');
+      list.innerHTML = state.notes
+        .map(
+          (n) => `
+          <div class="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-well border border-hairline font-mono text-[11px] text-ink">
+            <span class="truncate" title="${n.text}">${n.text}</span>
+            <button onclick="deleteNote(${n.id})" class="text-slateMuted hover:text-signal cursor-pointer">✕</button>
+          </div>
+        `
+        )
+        .join('');
+    }
+
+    /**
+     * Interactive Lab Experiments
+     */
+    function stopRabiSweep() {
+      if (state.rabiTimer) {
+        clearInterval(state.rabiTimer);
+        state.rabiTimer = null;
+      }
+    }
+
+    function loadExperiment(id) {
+      closeModal('guide-modal');
+      stopRabiSweep();
+
+      if (id === 'superposition') {
+        if (state.numQubits !== 1) changeQubitCount(1 - state.numQubits);
+        state.amplitudes = initAmplitudes(1);
+        state.targetQubit = 0;
+        applySingleGate('H');
+        showToast('Prepared |+⟩ superposition');
+      } else if (id === 'phase') {
+        if (state.numQubits !== 1) changeQubitCount(1 - state.numQubits);
+        state.amplitudes = initAmplitudes(1);
+        state.targetQubit = 0;
+        applySingleGate('H');
+        applySingleGate('S');
+        showToast('Prepared |i⟩ phase state');
+      } else if (id === 'bell') {
+        if (state.numQubits !== 2) changeQubitCount(2 - state.numQubits);
+        state.amplitudes = initAmplitudes(2);
+        state.targetQubit = 0;
+        applySingleGate('H');
+        state.controlQubit = 0;
+        state.targetQubit = 1;
+        applyTwoQubitGate('CNOT');
+        showToast('Prepared Bell state |Φ⁺⟩');
+      } else if (id === 'ghz') {
+        if (state.numQubits !== 3) changeQubitCount(3 - state.numQubits);
+        state.amplitudes = initAmplitudes(3);
+        state.targetQubit = 0;
+        applySingleGate('H');
+        state.controlQubit = 0;
+        state.targetQubit = 1;
+        applyTwoQubitGate('CNOT');
+        state.targetQubit = 2;
+        applyTwoQubitGate('CNOT');
+        showToast('Prepared 3-qubit GHZ state');
+      } else if (id === 'rabi') {
+        if (state.numQubits !== 1) changeQubitCount(1 - state.numQubits);
+        state.amplitudes = initAmplitudes(1);
+        state.targetQubit = 0;
+        syncUI();
+        showToast('Running 360° Rabi oscillation...');
+        let step = 0;
+        state.rabiTimer = setInterval(() => {
+          step += 6;
+          applyUnitaryToQubit(getRotationMatrix('x', 6), 0);
+          if (step >= 360) {
+            stopRabiSweep();
+            showToast('Rabi cycle complete');
+          }
+        }, 30);
+      }
+    }
+
+    /**
+     * Synchronize All UI Panels with Statevector
+     */
+    function syncUI() {
+      const n = state.numQubits;
+      const dim = 1 << n;
+
+      // Dirac Notation & Norm
+      document.getElementById('dirac-display').textContent = formatDiracNotation();
+      let normSq = 0;
+      for (const a of state.amplitudes) normSq += C.abs2(a);
+      document.getElementById('global-phase-readout').textContent = `‖ψ‖ = ${Math.sqrt(normSq).toFixed(2)}`;
+
+      // Qubit Telemetry Cards & Global Entanglement Status
+      let minPurity = 1;
+      const telemetryHTML = [];
+      for (let q = 0; q < n; q++) {
+        const t = computeQubitTelemetry(q);
+        minPurity = Math.min(minPurity, t.purity);
+        const pal = QUBIT_PALETTE[q % QUBIT_PALETTE.length];
+        const isTarget = q === state.targetQubit;
+        const purityPct = Math.round(t.purity * 100);
+        const fmt = (v) => (Math.abs(v) < 0.005 ? '0.00' : v.toFixed(2));
+
+        if (isTarget) {
+          document.getElementById('hud-theta').textContent = `${t.thetaDeg.toFixed(1)}°`;
+          document.getElementById('hud-phi').textContent = `${t.phiDeg.toFixed(1)}°`;
+        }
+
+        telemetryHTML.push(`
+          <div onclick="selectTargetQubit(${q})"
+            class="p-3 border cursor-pointer transition-colors ${isTarget ? 'bg-paper border-ink' : 'bg-well border-hairline hover:border-slateMuted'}">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="w-2.5 h-2.5" style="background:${pal.hex};"></span>
+                <span class="font-mono text-[12px] font-bold text-ink">Qubit ${q}</span>
+                ${isTarget ? '<span class="font-mono text-[9.5px] px-1.5 py-0.2 bg-ink text-alabaster font-semibold">TARGET</span>' : ''}
+              </div>
+              <span class="font-mono text-[11px] font-semibold tabular" style="color:${pal.hex};">Purity ${purityPct}%</span>
+            </div>
+            <div class="mt-2 flex items-center justify-between font-mono text-[11px] text-ink tabular">
+              <span>(${fmt(t.x)}, ${fmt(t.y)}, ${fmt(t.z)})</span>
+              <span class="text-slateMuted text-[10.5px]">θ:${Math.round(t.thetaDeg)}° φ:${Math.round(t.phiDeg)}°</span>
+            </div>
+            <div class="mt-2 w-full h-1.5 bg-alabaster border border-hairline overflow-hidden">
+              <div class="h-full transition-all duration-200" style="width:${purityPct}%; background:${pal.hex};"></div>
+            </div>
+          </div>
+        `);
+      }
+      document.getElementById('qubit-telemetry-list').innerHTML = telemetryHTML.join('');
+
+      // Top Status Indicator (Pure vs Entangled)
+      const statusPill = document.getElementById('global-status-pill');
+      const statusDot = document.getElementById('status-dot');
+      const statusText = document.getElementById('status-text');
+      if (minPurity < 0.98) {
+        statusPill.className = 'hidden md:flex items-center gap-2 px-3 py-1.5 bg-well border border-signal text-signal font-mono text-[11px] font-semibold tabular';
+        statusDot.className = 'w-2 h-2 bg-signal';
+        statusText.textContent = `ENTANGLED · Min Tr(ρ²)=${minPurity.toFixed(2)}`;
+      } else {
+        statusPill.className = 'hidden md:flex items-center gap-2 px-3 py-1.5 bg-well border border-hairline text-viridian font-mono text-[11px] font-semibold tabular';
+        statusDot.className = 'w-2 h-2 bg-viridian';
+        statusText.textContent = `PURE STATE · Tr(ρ²)=1.00`;
+      }
+
+      // Measurement Probability Bars
+      const measHTML = [];
+      for (let i = 0; i < dim; i++) {
+        const prob = (C.abs2(state.amplitudes[i]) / (normSq || 1)) * 100;
+        const ket = `|${i.toString(2).padStart(n, '0')}⟩`;
+        measHTML.push(`
+          <div class="flex items-center gap-2 font-mono text-[11.5px] tabular">
+            <span class="text-ink font-medium min-w-[38px]">${ket}</span>
+            <div class="flex-1 h-2 bg-well border border-hairline overflow-hidden">
+              <div class="h-full bg-cobalt transition-all duration-200" style="width:${prob.toFixed(1)}%"></div>
+            </div>
+            <span class="text-ink font-semibold w-[50px] text-right">${prob.toFixed(1)}%</span>
+          </div>
+        `);
+      }
+      document.getElementById('measurement-bars').innerHTML = measHTML.join('');
+
+      // Manual Amplitude Inputs
+      const manHTML = [];
+      for (let i = 0; i < dim; i++) {
+        const a = state.amplitudes[i];
+        const ket = `|${i.toString(2).padStart(n, '0')}⟩`;
+        const reVal = Math.abs(a.re) < 1e-4 ? '0' : Number(a.re.toFixed(3)).toString();
+        const imVal = Math.abs(a.im) < 1e-4 ? '0' : Number(a.im.toFixed(3)).toString();
+        manHTML.push(`
+          <div class="flex items-center gap-1.5 font-mono text-[11.5px] tabular">
+            <span class="text-ink font-medium min-w-[36px]">${ket}</span>
+            <input id="man-re-${i}" type="number" step="0.1" value="${reVal}"
+              class="w-full px-2 py-1 bg-well border border-hairline focus:border-ink focus:bg-alabaster focus:outline-none text-ink tabular" />
+            <input id="man-im-${i}" type="number" step="0.1" value="${imVal}"
+              class="w-full px-2 py-1 bg-well border border-hairline focus:border-ink focus:bg-alabaster focus:outline-none text-ink tabular" />
+            <span class="text-slateMuted">i</span>
+          </div>
+        `);
+      }
+      document.getElementById('manual-inputs-list').innerHTML = manHTML.join('');
+
+      // Register Controls & Badges
+      document.getElementById('qubit-count-val').textContent = n;
+      document.getElementById('hilbert-dim-label').textContent = `2${n === 1 ? '¹' : n === 2 ? '²' : '³'} = ${dim}`;
+      document.getElementById('multi-badge').textContent = `${n}Q`;
+      document.getElementById('dec-qubits-btn').disabled = n <= 1;
+      document.getElementById('inc-qubits-btn').disabled = n >= 3;
+
+      document.getElementById('target-qubit-pills').innerHTML = Array.from({ length: n }, (_, q) => {
+        const active = q === state.targetQubit;
+        return `
+          <button onclick="selectTargetQubit(${q})"
+            class="px-3 py-1 font-mono text-[11.5px] font-semibold border transition-colors cursor-pointer ${
+              active
+                ? 'bg-signal text-white border-signal'
+                : 'bg-well text-ink border-hairline hover:border-ink'
+            }">
+            Q${q}
+          </button>
+        `;
+      }).join('');
+
+      // Entangling Gates Panel
+      const multiPanel = document.getElementById('multi-qubit-gates-panel');
+      if (n >= 2) {
+        multiPanel.classList.remove('hidden');
+        document.getElementById('entangle-pair-badge').textContent = `Ctrl Q${state.controlQubit} → Tgt Q${state.targetQubit}`;
+        document.getElementById('control-qubit-pills').innerHTML = Array.from({ length: n }, (_, q) => {
+          const active = q === state.controlQubit;
+          return `
+            <button onclick="selectControlQubit(${q})"
+              class="px-2.5 py-0.5 font-mono text-[11px] font-semibold border transition-colors cursor-pointer ${
+                active
+                  ? 'bg-ink text-alabaster border-ink'
+                  : 'bg-well text-ink border-hairline hover:border-ink'
+              }">
+              Q${q}
+            </button>
+          `;
+        }).join('');
+      } else {
+        multiPanel.classList.add('hidden');
+      }
+
+      update3DStateVectors();
+    }
+
+    /**
+     * ==================== THREE.JS ARCHITECTURAL BLOCH SPHERE ENGINE ====================
+     */
+    let scene, camera, renderer, controls;
+    let sphereVisuals = [];
+
+    function initThreeViewport() {
+      const host = document.getElementById('three-canvas-host');
+      const w = host.clientWidth || 800;
+      const h = host.clientHeight || 600;
+
+      scene = new THREE.Scene();
+
+      camera = new THREE.PerspectiveCamera(35, w / h, 0.1, 100);
+      camera.position.set(2.8, 2.1, 3.8);
+
+      renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        alpha: true,
+        preserveDrawingBuffer: true
+      });
+      renderer.setSize(w, h);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      host.appendChild(renderer.domElement);
+
+      controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.08;
+      controls.enablePan = false;
+      controls.minDistance = 2.4;
+      controls.maxDistance = 12;
+
+      renderer.domElement.addEventListener('dblclick', () => setCameraPreset('iso'));
+
+      // Clean Architectural Studio Lighting
+      scene.add(new THREE.AmbientLight(0xffffff, 0.88));
+      const keyLight = new THREE.DirectionalLight(0xffffff, 0.45);
+      keyLight.position.set(4, 7, 5);
+      scene.add(keyLight);
+
+      // Fine 1px Technical Floor Grid on Warm Stone Stage
+      const gridHelper = new THREE.GridHelper(10, 20, 0xC6C5BD, 0xDCDAD2);
+      gridHelper.position.y = -1.65;
+      scene.add(gridHelper);
+
+      rebuildSceneSpheres();
+      syncUI();
+      renderLoop();
+    }
+
+    function setCameraPreset(preset) {
+      if (!camera || !controls) return;
+      const dist = state.viewMode === 'multi' && state.numQubits > 1 ? 6.4 : 4.9;
+      if (preset === 'iso') {
+        camera.position.set(dist * 0.58, dist * 0.42, dist * 0.72);
+      } else if (preset === 'top') {
+        camera.position.set(0.01, dist * 1.05, 0.01);
+      } else if (preset === 'sideX') {
+        camera.position.set(0, 0.15, dist * 1.05);
+      } else if (preset === 'sideY') {
+        camera.position.set(dist * 1.05, 0.15, 0);
+      }
+      controls.target.set(0, 0, 0);
+      controls.update();
+    }
+
+    /**
+     * Build a Dieter Rams / Architectural Bloch Sphere Unit
+     */
+    function buildBlochUnit(qubitIndex, offsetX, scale) {
+      const root = new THREE.Group();
+      root.position.set(offsetX, 0, 0);
+      root.scale.setScalar(scale);
+
+      const R = 1.0;
+
+      // 1. Subtle Translucent Frosted Alabaster Shell
+      const coreMesh = new THREE.Mesh(
+        new THREE.SphereGeometry(R * 0.992, 48, 36),
+        new THREE.MeshPhongMaterial({
+          color: 0xFAF9F6,
+          specular: 0xFFFFFF,
+          shininess: 35,
+          transparent: true,
+          opacity: 0.46,
+          depthWrite: false
+        })
+      );
+      root.add(coreMesh);
+
+      // 2. Crisp Latitude & Meridian Hairlines
+      const latMat = new THREE.LineBasicMaterial({ color: 0xB6B5AD, transparent: true, opacity: 0.55 });
+      [-0.5, 0.5].forEach((yVal) => {
+        const rad = Math.sqrt(Math.max(0, R * R - yVal * yVal));
+        const pts = [];
+        for (let i = 0; i <= 96; i++) {
+          const a = (i / 96) * Math.PI * 2;
+          pts.push(new THREE.Vector3(Math.cos(a) * rad, yVal, Math.sin(a) * rad));
+        }
+        root.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), latMat));
+      });
+
+      // 3 Meridian Hairlines (0°, 60°, 120°)
+      for (let m = 0; m < 3; m++) {
+        const rotY = (m * Math.PI) / 3;
+        const pts = [];
+        for (let i = 0; i <= 96; i++) {
+          const a = (i / 96) * Math.PI * 2;
+          const px = Math.cos(a) * R * Math.cos(rotY);
+          const py = Math.sin(a) * R;
+          const pz = Math.cos(a) * R * Math.sin(rotY);
+          pts.push(new THREE.Vector3(px, py, pz));
+        }
+        root.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), latMat));
+      }
+
+      // 3. Tinted Equatorial Plane Disc & Precision Rim
+      const eqDisc = new THREE.Mesh(
+        new THREE.CircleGeometry(R, 64),
+        new THREE.MeshBasicMaterial({
+          color: 0x0F52BA,
+          transparent: true,
+          opacity: 0.055,
+          side: THREE.DoubleSide,
+          depthWrite: false
+        })
+      );
+      eqDisc.rotation.x = -Math.PI / 2;
+      root.add(eqDisc);
+
+      const eqRimPts = [];
+      for (let i = 0; i <= 128; i++) {
+        const a = (i / 128) * Math.PI * 2;
+        eqRimPts.push(new THREE.Vector3(Math.cos(a) * R, 0, Math.sin(a) * R));
+      }
+      root.add(
+        new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(eqRimPts),
+          new THREE.LineBasicMaterial({ color: 0x7A7972, transparent: true, opacity: 0.85 })
+        )
+      );
+
+      // 45° Azimuthal Tick Marks around Equator
+      for (let deg = 0; deg < 360; deg += 45) {
+        const rad = (deg * Math.PI) / 180;
+        const pIn = new THREE.Vector3(Math.cos(rad) * 0.92, 0, Math.sin(rad) * 0.92);
+        const pOut = new THREE.Vector3(Math.cos(rad) * 1.03, 0, Math.sin(rad) * 1.03);
+        root.add(
+          new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints([pIn, pOut]),
+            new THREE.LineBasicMaterial({ color: 0x141413, transparent: true, opacity: 0.55 })
+          )
+        );
+      }
+
+      // 4. High-Contrast Scientific Coordinate Axes
+      // Quantum (x, y, z) -> Three.js (Y_q -> +X, Z_q -> +Y, X_q -> +Z)
+      const axLen = 1.38;
+      const makeAxis = (p1, p2, colorHex) =>
+        new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints([p1, p2]),
+          new THREE.LineBasicMaterial({ color: colorHex })
+        );
+
+      // Z-Axis: Cobalt Blue (#0F52BA)
+      root.add(makeAxis(new THREE.Vector3(0, -axLen, 0), new THREE.Vector3(0, axLen, 0), 0x0F52BA));
+      // X-Axis: Signal Orange (#E63B19)
+      root.add(makeAxis(new THREE.Vector3(0, 0, -axLen), new THREE.Vector3(0, 0, axLen), 0xE63B19));
+      // Y-Axis: Viridian (#0D7A5F)
+      root.add(makeAxis(new THREE.Vector3(-axLen, 0, 0), new THREE.Vector3(axLen, 0, 0), 0x0D7A5F));
+
+      // 5. Precision State Vector Arrow & Dashed Projection Guides
+      const pal = QUBIT_PALETTE[qubitIndex % QUBIT_PALETTE.length];
+      const vecColor = new THREE.Color(pal.three);
+
+      // Origin Pivot Dot
+      root.add(
+        new THREE.Mesh(
+          new THREE.SphereGeometry(0.036, 16, 16),
+          new THREE.MeshBasicMaterial({ color: 0x141413 })
+        )
+      );
+
+      const arrowPivot = new THREE.Group();
+      const arrowMat = new THREE.MeshLambertMaterial({
+        color: vecColor,
+        emissive: vecColor,
+        emissiveIntensity: 0.25
+      });
+
+      const shaftGeo = new THREE.CylinderGeometry(0.022, 0.022, 1, 16);
+      shaftGeo.translate(0, 0.5, 0);
+      const shaftMesh = new THREE.Mesh(shaftGeo, arrowMat);
+
+      const headGeo = new THREE.ConeGeometry(0.068, 0.16, 20);
+      headGeo.translate(0, 0.08, 0);
+      const headMesh = new THREE.Mesh(headGeo, arrowMat);
+
+      const tipSphere = new THREE.Mesh(
+        new THREE.SphereGeometry(0.038, 16, 16),
+        new THREE.MeshBasicMaterial({ color: 0x141413 })
+      );
+
+      arrowPivot.add(shaftMesh, headMesh, tipSphere);
+      root.add(arrowPivot);
+
+      // Dashed Projection Guides onto XY Equatorial Plane & Z-Axis
+      const projMat = new THREE.LineDashedMaterial({
+        color: 0x141413,
+        dashSize: 0.045,
+        gapSize: 0.035,
+        transparent: true,
+        opacity: 0.45
+      });
+      const projGeo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(0, 0, 0)
+      ]);
+      const projLines = new THREE.Line(projGeo, projMat);
+      root.add(projLines);
+
+      scene.add(root);
+
+      // 6. Crisp High-Contrast Projected HTML Ket Labels
+      const layer = document.getElementById('projected-labels-layer');
+      const addLabel = (text, color, cls) => {
+        const el = document.createElement('div');
+        el.className = `bloch-label ${cls}`;
+        el.style.color = color;
+        el.textContent = text;
+        layer.appendChild(el);
+        return el;
+      };
+
+      const labels = [
+        { el: addLabel(`Q${qubitIndex}`, '#FAF9F6', 'text-[12px] px-2 py-0.5 bg-ink border border-ink'), pos: new THREE.Vector3(0, 1.76, 0) },
+        { el: addLabel('|0⟩', '#0F52BA', 'text-[12.5px] px-1 bg-alabaster/90 border border-hairline'), pos: new THREE.Vector3(0, 1.52, 0) },
+        { el: addLabel('|1⟩', '#0F52BA', 'text-[12.5px] px-1 bg-alabaster/90 border border-hairline'), pos: new THREE.Vector3(0, -1.52, 0) },
+        { el: addLabel('|+⟩', '#E63B19', 'text-[12.5px] px-1 bg-alabaster/90 border border-hairline'), pos: new THREE.Vector3(0, 0, 1.52) },
+        { el: addLabel('|-⟩', '#E63B19', 'text-[11.5px] px-1 bg-alabaster/80 border border-hairline opacity-85'), pos: new THREE.Vector3(0, 0, -1.52) },
+        { el: addLabel('|i⟩', '#0D7A5F', 'text-[12.5px] px-1 bg-alabaster/90 border border-hairline'), pos: new THREE.Vector3(1.52, 0, 0) },
+        { el: addLabel('|-i⟩', '#0D7A5F', 'text-[11.5px] px-1 bg-alabaster/80 border border-hairline opacity-85'), pos: new THREE.Vector3(-1.52, 0, 0) }
+      ];
+
+      return {
+        qubitIndex,
+        root,
+        arrowPivot,
+        shaftMesh,
+        headMesh,
+        tipSphere,
+        projLines,
+        labels,
+        currentVec: new THREE.Vector3(0, 1, 0),
+        targetVec: new THREE.Vector3(0, 1, 0)
+      };
+    }
+
+    function rebuildSceneSpheres() {
+      if (!scene) return;
+      sphereVisuals.forEach((v) => {
+        scene.remove(v.root);
+        v.labels.forEach((l) => l.el.remove());
+      });
+      sphereVisuals = [];
+
+      const n = state.numQubits;
+      if (state.viewMode === 'single' || n === 1) {
+        sphereVisuals.push(buildBlochUnit(state.targetQubit, 0, 1.05));
+      } else if (n === 2) {
+        sphereVisuals.push(buildBlochUnit(0, -1.55, 0.8));
+        sphereVisuals.push(buildBlochUnit(1, 1.55, 0.8));
+      } else {
+        sphereVisuals.push(buildBlochUnit(0, -2.15, 0.65));
+        sphereVisuals.push(buildBlochUnit(1, 0, 0.65));
+        sphereVisuals.push(buildBlochUnit(2, 2.15, 0.65));
+      }
+
+      update3DStateVectors(true);
+    }
+
+    function update3DStateVectors(immediate = false) {
+      sphereVisuals.forEach((v) => {
+        const t = computeQubitTelemetry(v.qubitIndex);
+        v.targetVec.set(t.y, t.z, t.x);
+        if (immediate) v.currentVec.copy(v.targetVec);
+      });
+    }
+
+    function updateVectorMeshAndProjections(v) {
+      const vec = v.currentVec;
+      const len = vec.length();
+
+      if (len < 0.025) {
+        v.shaftMesh.visible = false;
+        v.headMesh.visible = false;
+        v.tipSphere.visible = true;
+        v.tipSphere.position.set(0, 0, 0);
+        v.projLines.visible = false;
+        return;
+      }
+
+      v.shaftMesh.visible = true;
+      v.headMesh.visible = true;
+      v.tipSphere.visible = true;
+
+      const dir = vec.clone().normalize();
+      const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+      v.arrowPivot.quaternion.copy(quat);
+
+      const headLen = Math.min(0.16, len * 0.42);
+      const shaftLen = Math.max(0.001, len - headLen);
+
+      v.shaftMesh.scale.set(1, shaftLen, 1);
+      v.headMesh.position.set(0, shaftLen, 0);
+      v.headMesh.scale.set(1, headLen / 0.16, 1);
+      v.tipSphere.position.set(0, len, 0);
+
+      v.projLines.visible = true;
+      const posAttr = v.projLines.geometry.attributes.position;
+      posAttr.setXYZ(0, 0, vec.y, 0);
+      posAttr.setXYZ(1, vec.x, vec.y, vec.z);
+      posAttr.setXYZ(2, vec.x, 0, vec.z);
+      posAttr.setXYZ(3, 0, 0, 0);
+      posAttr.needsUpdate = true;
+      v.projLines.computeLineDistances();
+    }
+
+    function updateLabelsOverlay() {
+      const host = document.getElementById('three-canvas-host');
+      const w = host.clientWidth;
+      const h = host.clientHeight;
+      if (!w || !h) return;
+
+      const tmp = new THREE.Vector3();
+      sphereVisuals.forEach((v) => {
+        v.labels.forEach((lbl) => {
+          tmp.copy(lbl.pos);
+          v.root.localToWorld(tmp);
+          tmp.project(camera);
+
+          lbl.el.style.left = `${(tmp.x * 0.5 + 0.5) * w}px`;
+          lbl.el.style.top = `${(-tmp.y * 0.5 + 0.5) * h}px`;
+        });
+      });
+    }
+
+    function renderLoop() {
+      requestAnimationFrame(renderLoop);
+      sphereVisuals.forEach((v) => {
+        v.currentVec.lerp(v.targetVec, 0.2);
+        updateVectorMeshAndProjections(v);
+      });
+      controls.update();
+      updateLabelsOverlay();
+      renderer.render(scene, camera);
+    }
+
+    function onViewportResize() {
+      const host = document.getElementById('three-canvas-host');
+      if (!host || !renderer || !camera) return;
+      const w = host.clientWidth;
+      const h = host.clientHeight;
+      if (!w || !h) return;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+    }
+
+    function downloadSnapshot() {
+      if (!renderer) return;
+      renderer.render(scene, camera);
+      const link = document.createElement('a');
+      link.download = `quantum-bloch-instrument-q${state.numQubits}.png`;
+      link.href = renderer.domElement.toDataURL('image/png');
+      link.click();
+      showToast('Exported 3D Bloch Sphere PNG');
+    }
+
+    /**
+     * Global Keyboard Shortcuts
+     */
+    window.addEventListener('keydown', (e) => {
+      if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+      const k = e.key.toUpperCase();
+      if (['H', 'X', 'Y', 'Z', 'S', 'T'].includes(k)) {
+        applySingleGate(k);
+      } else if (k === '1' || k === '2' || k === '3') {
+        const q = parseInt(k, 10) - 1;
+        if (q < state.numQubits) selectTargetQubit(q);
+      } else if (e.code === 'Space') {
+        e.preventDefault();
+        measureAndCollapse();
+      } else if (k === 'R') {
+        resetSimulator();
+      } else if (e.key === '?') {
+        document.getElementById('shortcuts-modal').classList.toggle('hidden');
+      }
+    });
+
+    window.addEventListener('resize', onViewportResize);
+    window.addEventListener('load', initThreeViewport);
+  </script>
+</body>
+</html>
