@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bloch Sphere Simulator</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 13px;
+      background: #f0f0f0;
+      color: #111;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    header {
+      background: #ddd;
+      border-bottom: 1px solid #999;
+      padding: 8px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    header h1 { margin: 0; font-size: 15px; }
+    main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+    .panel {
+      width: 290px;
+      background: #fafafa;
+      border-right: 1px solid #999;
+      padding: 10px;
+      overflow-y: auto;
+    }
+    .panel.right {
+      border-right: none;
+      border-left: 1px solid #999;
+    }
+    .box {
+      border: 1px solid #ccc;
+      background: #fff;
+      padding: 8px;
+      margin-bottom: 10px;
+    }
+    .box h3 {
+      margin: 0 0 6px 0;
+      font-size: 11px;
+      text-transform: uppercase;
+      color: #555;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 3px;
+    }
+    #stage {
+      flex: 1;
+      position: relative;
+      background: #e5e5e5;
+    }
+    #angles {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: #fff;
+      border: 1px solid #999;
+      padding: 4px 8px;
+      font-family: monospace;
+    }
+    #legend {
+      position: absolute;
+      bottom: 8px;
+      left: 8px;
+      background: #fff;
+      border: 1px solid #999;
+      padding: 4px 8px;
+      font-size: 11px;
+    }
+    .mono { font-family: monospace; }
+    .row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+    .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+    .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; margin: 4px 0; }
+    button {
+      padding: 4px 6px;
+      border: 1px solid #888;
+      background: #eee;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    button:hover { background: #ddd; }
+    button.active { background: #333; color: #fff; border-color: #111; }
+    button:disabled { opacity: 0.4; cursor: default; }
+    input[type="number"] {
+      width: 65px;
+      padding: 2px 4px;
+      border: 1px solid #aaa;
+      font-family: monospace;
+    }
+    input[type="range"] { width: 100%; }
+    .bar-bg {
+      flex: 1;
+      height: 10px;
+      background: #eee;
+      border: 1px solid #bbb;
+      margin: 0 6px;
+    }
+    .bar-fill { height: 100%; background: #2b579a; }
+    .bar-fill.shots { background: #c0392b; }
+    .q-card {
+      border: 1px solid #ccc;
+      padding: 6px;
+      margin-bottom: 5px;
+      cursor: pointer;
+      background: #f9f9f9;
+    }
+    .q-card.selected { border-color: #000; background: #eef4ff; }
+    #msg { font-family: monospace; color: #c0392b; font-size: 12px; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div>
+      <h1>Quantum Bloch Sphere Simulator</h1>
+    </div>
+    <div id="msg"></div>
+    <div>
+      <span id="status-text" class="mono" style="margin-right: 10px;">PURE · Tr(ρ²)=1.00</span>
+      <button onclick="resetSimulator()">Reset</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- LEFT PANEL -->
+    <div class="panel">
+      <div class="box">
+        <h3>Statevector (Dirac)</h3>
+        <div id="dirac-display" class="mono" style="word-break: break-all; margin-bottom: 6px;">1.000 |0⟩</div>
+        <div id="norm-readout" class="mono" style="font-size: 11px; color: #555; text-align: right;">‖ψ‖ = 1.00</div>
+      </div>
+
+      <div class="box">
+        <h3>Qubit Telemetry (x, y, z)</h3>
+        <div id="qubit-list"></div>
+      </div>
+
+      <div class="box">
+        <h3>Measurement Probabilities</h3>
+        <div id="meas-bars"></div>
+        <div style="margin-top: 6px; text-align: right;">
+          <button onclick="runShots()">Run 1000 Shots</button>
+        </div>
+        <div id="shots-box" style="display: none; margin-top: 8px; border-top: 1px solid #ccc; padding-top: 6px;">
+          <div class="row">
+            <strong style="font-size: 11px;">1000-Shot Result</strong>
+            <button onclick="document.getElementById('shots-box').style.display='none'" style="padding: 1px 4px;">x</button>
+          </div>
+          <div id="shots-bars"></div>
+        </div>
+      </div>
+
+      <div class="box">
+        <h3>Manual Amplitudes (Re / Im)</h3>
+        <div style="margin-bottom: 6px;">
+          <label><input type="checkbox" id="auto-norm" checked /> Auto-normalize</label>
+        </div>
+        <div id="manual-inputs"></div>
+        <button onclick="applyManual()" style="width: 100%; margin-top: 6px;">Apply Vector</button>
+      </div>
+    </div>
+
+    <!-- CENTER CANVAS -->
+    <div id="stage">
+      <div id="angles">θ: <span id="hud-theta">0.0°</span> | φ: <span id="hud-phi">0.0°</span></div>
+      <div id="legend">
+        <span style="color:#0F52BA">■ Z (|0⟩/|1⟩)</span> &nbsp;
+        <span style="color:#E63B19">■ X (|+⟩/|-⟩)</span> &nbsp;
+        <span style="color:#0D7A5F">■ Y (|i⟩/|-i⟩)</span> &nbsp;
+        (Drag: rotate, Scroll: zoom, Dbl-click: reset view)
+      </div>
+      <div id="canvas-host" style="width: 100%; height: 100%;"></div>
+    </div>
+
+    <!-- RIGHT PANEL -->
+    <div class="panel right">
+      <div class="box">
+        <h3>Register</h3>
+        <div class="row">
+          <span>Qubits: <strong id="q-count">1</strong> (Dim: <span id="h-dim">2</span>)</span>
+          <div>
+            <button id="btn-dec" onclick="changeQubits(-1)">-</button>
+            <button id="btn-inc" onclick="changeQubits(1)">+</button>
+          </div>
+        </div>
+        <div class="row" style="margin-top: 6px;">
+          <span>Target Qubit:</span>
+          <div id="target-pills"></div>
+        </div>
+      </div>
+
+      <div class="box">
+        <h3>Single-Qubit Gates</h3>
+        <div class="grid3">
+          <button onclick="applyGate('H')" title="Hadamard">H</button>
+          <button onclick="applyGate('X')" title="Pauli-X">X</button>
+          <button onclick="applyGate('Y')" title="Pauli-Y">Y</button>
+          <button onclick="applyGate('Z')" title="Pauli-Z">Z</button>
+          <button onclick="applyGate('S')" title="Phase S">S</button>
+          <button onclick="applyGate('T')" title="T Gate">T</button>
+        </div>
+      </div>
+
+      <div class="box">
+        <h3>Rotations</h3>
+
+        <div style="margin-bottom: 8px;">
+          <div class="row"><span>Rx(θ)</span><span id="rx-lbl" class="mono">0°</span></div>
+          <input id="rx-sl" type="range" min="-180" max="180" value="0" oninput="setRot('x', this.value)" />
+          <div class="grid4">
+            <button onclick="snapRot('x', -90)">-90°</button>
+            <button onclick="snapRot('x', -45)">-45°</button>
+            <button onclick="snapRot('x', 45)">+45°</button>
+            <button onclick="snapRot('x', 90)">+90°</button>
+          </div>
+          <button onclick="applyRot('x')" style="width: 100%;">Apply Rx</button>
+        </div>
+
+        <div style="margin-bottom: 8px; border-top: 1px solid #eee; padding-top: 6px;">
+          <div class="row"><span>Ry(θ)</span><span id="ry-lbl" class="mono">0°</span></div>
+          <input id="ry-sl" type="range" min="-180" max="180" value="0" oninput="setRot('y', this.value)" />
+          <div class="grid4">
+            <button onclick="snapRot('y', -90)">-90°</button>
+            <button onclick="snapRot('y', -45)">-45°</button>
+            <button onclick="snapRot('y', 45)">+45°</button>
+            <button onclick="snapRot('y', 90)">+90°</button>
+          </div>
+          <button onclick="applyRot('y')" style="width: 100%;">Apply Ry</button>
+        </div>
+
+        <div style="border-top: 1px solid #eee; padding-top: 6px;">
+          <div class="row"><span>Rz(θ)</span><span id="rz-lbl" class="mono">0°</span></div>
+          <input id="rz-sl" type="range" min="-180" max="180" value="0" oninput="setRot('z', this.value)" />
+          <div class="grid4">
+            <button onclick="snapRot('z', -90)">-90°</button>
+            <button onclick="snapRot('z', -45)">-45°</button>
+            <button onclick="snapRot('z', 45)">+45°</button>
+            <button onclick="snapRot('z', 90)">+90°</button>
+          </div>
+          <button onclick="applyRot('z')" style="width: 100%;">Apply Rz</button>
+        </div>
+      </div>
+
+      <div id="multi-panel" class="box" style="display: none;">
+        <h3>Two-Qubit Gates</h3>
+        <div class="row">
+          <span>Control Qubit:</span>
+          <div id="ctrl-pills"></div>
+        </div>
+        <div id="pair-info" class="mono" style="font-size: 11px; margin-bottom: 6px; color: #555;">Ctrl Q0 -> Tgt Q1</div>
+        <div class="grid3">
+          <button onclick="applyTwoGate('CNOT')">CNOT</button>
+          <button onclick="applyTwoGate('CZ')">CZ</button>
+          <button onclick="applyTwoGate('SWAP')">SWAP</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    // Complex math helpers
+    const C = {
+      add: (a, b) => ({ re: a.re + b.re, im: a.im + b.im }),
+      mul: (a, b) => ({ re: a.re * b.re - a.im * b.im, im: a.re * b.im + a.im * b.re }),
+      conj: (a) => ({ re: a.re, im: -a.im }),
+      abs2: (a) => a.re * a.re + a.im * a.im,
+      scale: (a, s) => ({ re: a.re * s, im: a.im * s }),
+      expI: (t) => ({ re: Math.cos(t), im: Math.sin(t) })
+    };
+
+    const S2 = 1 / Math.SQRT2;
+    const GATES = {
+      H: [[{ re: S2, im: 0 }, { re: S2, im: 0 }], [{ re: S2, im: 0 }, { re: -S2, im: 0 }]],
+      X: [[{ re: 0, im: 0 }, { re: 1, im: 0 }], [{ re: 1, im: 0 }, { re: 0, im: 0 }]],
+      Y: [[{ re: 0, im: 0 }, { re: 0, im: -1 }], [{ re: 0, im: 1 }, { re: 0, im: 0 }]],
+      Z: [[{ re: 1, im: 0 }, { re: 0, im: 0 }], [{ re: 0, im: 0 }, { re: -1, im: 0 }]],
+      S: [[{ re: 1, im: 0 }, { re: 0, im: 0 }], [{ re: 0, im: 0 }, { re: 0, im: 1 }]],
+      T: [[{ re: 1, im: 0 }, { re: 0, im: 0 }], [{ re: 0, im: 0 }, C.expI(Math.PI / 4)]]
+    };
+
+    const COLORS = ['#E63B19', '#0F52BA', '#0D7A5F'];
+    const state = {
+      numQubits: 1,
+      targetQubit: 0,
+      controlQubit: 0,
+      amplitudes: [{ re: 1, im: 0 }, { re: 0, im: 0 }],
+      rot: { x: 0, y: 0, z: 0 }
+    };
+
+    function notify(txt) {
+      const el = document.getElementById('msg');
+      el.textContent = txt;
+      setTimeout(() => { if (el.textContent === txt) el.textContent = ''; }, 2500);
+    }
+
+    function initAmps(n) {
+      const amps = Array.from({ length: 1 << n }, () => ({ re: 0, im: 0 }));
+      amps[0] = { re: 1, im: 0 };
+      return amps;
+    }
+
+    function normalize(amps) {
+      let sum = amps.reduce((acc, a) => acc + C.abs2(a), 0);
+      if (sum < 1e-12) { amps[0] = { re: 1, im: 0 }; return amps; }
+      const inv = 1 / Math.sqrt(sum);
+      return amps.map(a => C.scale(a, inv));
+    }
+
+    function applyUnitary(U, q) {
+      const n = state.numQubits, dim = 1 << n, mask = 1 << (n - 1 - q);
+      const next = [...state.amplitudes];
+      for (let i = 0; i < dim; i++) {
+        if ((i & mask) === 0) {
+          const i1 = i | mask, a0 = state.amplitudes[i], a1 = state.amplitudes[i1];
+          next[i] = C.add(C.mul(U[0][0], a0), C.mul(U[0][1], a1));
+          next[i1] = C.add(C.mul(U[1][0], a0), C.mul(U[1][1], a1));
+        }
+      }
+      state.amplitudes = normalize(next);
+      syncUI();
+    }
+
+    function applyGate(name) { if (GATES[name]) applyUnitary(GATES[name], state.targetQubit); }
+    function setRot(ax, val) { state.rot[ax] = parseFloat(val); document.getElementById(`r${ax}-lbl`).textContent = val + '°'; }
+    function snapRot(ax, deg) { document.getElementById(`r${ax}-sl`).value = deg; setRot(ax, deg); }
+
+    function applyRot(ax) {
+      const rad = (state.rot[ax] * Math.PI) / 180, c = Math.cos(rad / 2), s = Math.sin(rad / 2);
+      const U = ax === 'x' ? [[{ re: c, im: 0 }, { re: 0, im: -s }], [{ re: 0, im: -s }, { re: c, im: 0 }]]
+              : ax === 'y' ? [[{ re: c, im: 0 }, { re: -s, im: 0 }], [{ re: s, im: 0 }, { re: c, im: 0 }]]
+              : [[{ re: c, im: -s }, { re: 0, im: 0 }], [{ re: 0, im: 0 }, { re: c, im: s }]];
+      applyUnitary(U, state.targetQubit);
+    }
+
+    function applyTwoGate(type) {
+      const n = state.numQubits, ctrl = state.controlQubit, tgt = state.targetQubit;
+      if (n < 2) return;
+      if (ctrl === tgt) return notify('Control and target must be different');
+      const dim = 1 << n, cBit = n - 1 - ctrl, tBit = n - 1 - tgt;
+      const next = [...state.amplitudes];
+
+      for (let i = 0; i < dim; i++) {
+        const bC = (i >> cBit) & 1, bT = (i >> tBit) & 1;
+        if (type === 'CNOT' && bC === 1 && bT === 0) {
+          const i1 = i | (1 << tBit);
+          [next[i], next[i1]] = [next[i1], next[i]];
+        } else if (type === 'CZ' && bC === 1 && bT === 1) {
+          next[i] = C.scale(next[i], -1);
+        } else if (type === 'SWAP' && bC === 1 && bT === 0) {
+          const sw = (i & ~(1 << cBit)) | (1 << tBit);
+          [next[i], next[sw]] = [next[sw], next[i]];
+        }
+      }
+      state.amplitudes = next;
+      syncUI();
+    }
+
+    function getTelemetry(q) {
+      const n = state.numQubits, dim = 1 << n, mask = 1 << (n - 1 - q);
+      let r00 = 0, r11 = 0, r01 = { re: 0, im: 0 };
+      for (let i = 0; i < dim; i++) {
+        if ((i & mask) === 0) {
+          const a0 = state.amplitudes[i], a1 = state.amplitudes[i | mask];
+          r00 += C.abs2(a0); r11 += C.abs2(a1);
+          r01 = C.add(r01, C.mul(a0, C.conj(a1)));
+        }
+      }
+      const x = 2 * r01.re, y = -2 * r01.im, z = r00 - r11;
+      const r = Math.min(1, Math.hypot(x, y, z));
+      const purity = 0.5 * (1 + r * r);
+      const theta = r > 1e-5 ? (Math.acos(Math.max(-1, Math.min(1, z / r))) * 180) / Math.PI : 0;
+      const phi = Math.hypot(x, y) > 1e-5 ? (Math.atan2(y, x) * 180) / Math.PI : 0;
+      return {
+        x: Math.abs(x) < 1e-5 ? 0 : x,
+        y: Math.abs(y) < 1e-5 ? 0 : y,
+        z: Math.abs(z) < 1e-5 ? 0 : z,
+        purity, theta, phi
+      };
+    }
+
+    function formatDirac() {
+      const n = state.numQubits, parts = [];
+      state.amplitudes.forEach((a, i) => {
+        if (C.abs2(a) > 1e-7) {
+          const re = Math.abs(a.re) < 1e-4 ? 0 : a.re, im = Math.abs(a.im) < 1e-4 ? 0 : a.im;
+          let c = im === 0 ? re.toFixed(3)
+                : re === 0 ? (Math.abs(im - 1) < 1e-4 ? 'i' : Math.abs(im + 1) < 1e-4 ? '-i' : `${im.toFixed(3)}i`)
+                : `(${re.toFixed(3)}${im >= 0 ? '+' : '-'}${Math.abs(im).toFixed(3)}i)`;
+          const ket = `|${i.toString(2).padStart(n, '0')}⟩`;
+          parts.push({ c, ket, neg: c.startsWith('-') });
+        }
+      });
+      if (!parts.length) return `1.000 |${'0'.repeat(n)}⟩`;
+      return parts.map((p, idx) => idx === 0 ? `${p.c} ${p.ket}` : p.neg ? `- ${p.c.slice(1)} ${p.ket}` : `+ ${p.c} ${p.ket}`).join(' ');
+    }
+
+    function runShots() {
+      const N = 1000, dim = state.amplitudes.length, counts = new Array(dim).fill(0);
+      let sum = 0;
+      const cdf = state.amplitudes.map(a => (sum += C.abs2(a)));
+      for (let s = 0; s < N; s++) {
+        const u = Math.random();
+        for (let i = 0; i < dim; i++) { if (u <= cdf[i]) { counts[i]++; break; } }
+      }
+      document.getElementById('shots-box').style.display = 'block';
+      document.getElementById('shots-bars').innerHTML = counts.map((cnt, i) => {
+        const pct = ((cnt / N) * 100).toFixed(1);
+        const ket = `|${i.toString(2).padStart(state.numQubits, '0')}⟩`;
+        return `<div class="row mono" style="font-size:11px;"><span>${ket}</span><div class="bar-bg"><div class="bar-fill shots" style="width:${pct}%"></div></div><span>${cnt} (${pct}%)</span></div>`;
+      }).join('');
+    }
+
+    function changeQubits(d) {
+      const next = Math.max(1, Math.min(3, state.numQubits + d));
+      if (next === state.numQubits) return;
+      state.numQubits = next;
+      state.targetQubit = Math.min(state.targetQubit, next - 1);
+      state.controlQubit = state.targetQubit === 0 ? Math.min(1, next - 1) : 0;
+      state.amplitudes = initAmps(next);
+      rebuildSpheres();
+      syncUI();
+    }
+
+    function selectTarget(q) {
+      state.targetQubit = q;
+      if (state.controlQubit === q && state.numQubits > 1) state.controlQubit = (q + 1) % state.numQubits;
+      syncUI();
+    }
+
+    function selectControl(q) {
+      state.controlQubit = q;
+      if (state.targetQubit === q && state.numQubits > 1) state.targetQubit = (q + 1) % state.numQubits;
+      syncUI();
+    }
+
+    function resetSimulator() {
+      state.amplitudes = initAmps(state.numQubits);
+      state.rot = { x: 0, y: 0, z: 0 };
+      ['x', 'y', 'z'].forEach(ax => {
+        document.getElementById(`r${ax}-sl`).value = 0;
+        document.getElementById(`r${ax}-lbl`).textContent = '0°';
+      });
+      document.getElementById('shots-box').style.display = 'none';
+      syncUI();
+      notify('Reset to |0⟩');
+    }
+
+    function applyManual() {
+      const dim = 1 << state.numQubits, auto = document.getElementById('auto-norm').checked;
+      const raw = [];
+      let normSq = 0;
+      for (let i = 0; i < dim; i++) {
+        const re = parseFloat(document.getElementById(`m-re-${i}`).value) || 0;
+        const im = parseFloat(document.getElementById(`m-im-${i}`).value) || 0;
+        raw.push({ re, im });
+        normSq += re * re + im * im;
+      }
+      if (normSq < 1e-10) return notify('Error: Zero norm');
+      state.amplitudes = auto ? normalize(raw) : raw;
+      syncUI();
+      notify('Applied statevector');
+    }
+
+    function syncUI() {
+      const n = state.numQubits, dim = 1 << n;
+      document.getElementById('dirac-display').textContent = formatDirac();
+      const normSq = state.amplitudes.reduce((acc, a) => acc + C.abs2(a), 0);
+      document.getElementById('norm-readout').textContent = `‖ψ‖ = ${Math.sqrt(normSq).toFixed(2)}`;
+
+      let minPurity = 1, qHTML = '';
+      for (let q = 0; q < n; q++) {
+        const t = getTelemetry(q);
+        minPurity = Math.min(minPurity, t.purity);
+        const isTgt = q === state.targetQubit;
+        if (isTgt) {
+          document.getElementById('hud-theta').textContent = t.theta.toFixed(1) + '°';
+          document.getElementById('hud-phi').textContent = t.phi.toFixed(1) + '°';
+        }
+        const f = v => Math.abs(v) < 0.005 ? '0.00' : v.toFixed(2);
+        qHTML += `
+          <div onclick="selectTarget(${q})" class="q-card ${isTgt ? 'selected' : ''}">
+            <div class="row">
+              <strong style="color:${COLORS[q]}">Qubit ${q} ${isTgt ? '[TARGET]' : ''}</strong>
+              <span class="mono">Purity: ${Math.round(t.purity * 100)}%</span>
+            </div>
+            <div class="mono" style="font-size:11px;">(${f(t.x)}, ${f(t.y)}, ${f(t.z)}) | θ:${Math.round(t.theta)}° φ:${Math.round(t.phi)}°</div>
+          </div>`;
+      }
+      document.getElementById('qubit-list').innerHTML = qHTML;
+
+      const st = document.getElementById('status-text');
+      if (minPurity < 0.98) {
+        st.textContent = `ENTANGLED · Min Tr(ρ²)=${minPurity.toFixed(2)}`;
+        st.style.color = '#c0392b';
+      } else {
+        st.textContent = 'PURE · Tr(ρ²)=1.00';
+        st.style.color = '#0D7A5F';
+      }
+
+      document.getElementById('meas-bars').innerHTML = state.amplitudes.map((a, i) => {
+        const prob = (C.abs2(a) / (normSq || 1)) * 100;
+        const ket = `|${i.toString(2).padStart(n, '0')}⟩`;
+        return `<div class="row mono" style="font-size:11px;"><span>${ket}</span><div class="bar-bg"><div class="bar-fill" style="width:${prob.toFixed(1)}%"></div></div><span>${prob.toFixed(1)}%</span></div>`;
+      }).join('');
+
+      document.getElementById('manual-inputs').innerHTML = state.amplitudes.map((a, i) => {
+        const ket = `|${i.toString(2).padStart(n, '0')}⟩`;
+        const re = Math.abs(a.re) < 1e-4 ? 0 : Number(a.re.toFixed(3));
+        const im = Math.abs(a.im) < 1e-4 ? 0 : Number(a.im.toFixed(3));
+        return `<div class="row mono" style="font-size:11px;"><span>${ket}</span><div><input id="m-re-${i}" type="number" step="0.1" value="${re}" /> + <input id="m-im-${i}" type="number" step="0.1" value="${im}" />i</div></div>`;
+      }).join('');
+
+      document.getElementById('q-count').textContent = n;
+      document.getElementById('h-dim').textContent = dim;
+      document.getElementById('btn-dec').disabled = n <= 1;
+      document.getElementById('btn-inc').disabled = n >= 3;
+
+      document.getElementById('target-pills').innerHTML = Array.from({ length: n }, (_, q) =>
+        `<button onclick="selectTarget(${q})" class="${q === state.targetQubit ? 'active' : ''}">Q${q}</button>`
+      ).join(' ');
+
+      const mp = document.getElementById('multi-panel');
+      if (n >= 2) {
+        mp.style.display = 'block';
+        document.getElementById('pair-info').textContent = `Ctrl Q${state.controlQubit} -> Tgt Q${state.targetQubit}`;
+        document.getElementById('ctrl-pills').innerHTML = Array.from({ length: n }, (_, q) =>
+          `<button onclick="selectControl(${q})" class="${q === state.controlQubit ? 'active' : ''}">Q${q}</button>`
+        ).join(' ');
+      } else {
+        mp.style.display = 'none';
+      }
+
+      units.forEach(u => {
+        const t = getTelemetry(u.q);
+        u.tgt = [t.x, t.y, t.z];
+      });
+    }
+
+    // --- 2D Canvas 3D Projection for Bloch Sphere ---
+    let cv, ctx, W, H, units = [];
+    const cam = { az: 0.65, el: 0.42, dist: 6.2, dragging: false };
+
+    function initCanvas() {
+      const host = document.getElementById('canvas-host');
+      cv = document.createElement('canvas');
+      cv.style.cssText = 'width:100%;height:100%;display:block;cursor:grab;';
+      host.appendChild(cv);
+      ctx = cv.getContext('2d');
+
+      const resize = () => {
+        W = cv.width = host.clientWidth;
+        H = cv.height = host.clientHeight;
+      };
+      window.addEventListener('resize', resize);
+      resize();
+
+      let last = null;
+      cv.onpointerdown = e => { cam.dragging = true; last = [e.clientX, e.clientY]; cv.setPointerCapture(e.pointerId); };
+      cv.onpointermove = e => {
+        if (!cam.dragging) return;
+        cam.az -= (e.clientX - last[0]) * 0.008;
+        cam.el = Math.max(-1.5, Math.min(1.5, cam.el + (e.clientY - last[1]) * 0.008));
+        last = [e.clientX, e.clientY];
+      };
+      cv.onpointerup = () => cam.dragging = false;
+      cv.onwheel = e => { e.preventDefault(); cam.dist = Math.max(2.5, Math.min(12, cam.dist * (e.deltaY > 0 ? 1.08 : 0.92))); };
+      cv.ondblclick = () => { cam.az = 0.65; cam.el = 0.42; cam.dist = units.length > 1 ? 7.6 : 6.2; };
+
+      rebuildSpheres();
+      syncUI();
+      requestAnimationFrame(loop);
+    }
+
+    function rebuildSpheres() {
+      const n = state.numQubits;
+      if (n === 1) units = [{ q: 0, ox: 0, s: 1.05, cur: [0, 0, 1], tgt: [0, 0, 1] }];
+      else if (n === 2) units = [{ q: 0, ox: -1.5, s: 0.8, cur: [0, 0, 1], tgt: [0, 0, 1] }, { q: 1, ox: 1.5, s: 0.8, cur: [0, 0, 1], tgt: [0, 0, 1] }];
+      else units = [{ q: 0, ox: -2.1, s: 0.65, cur: [0, 0, 1], tgt: [0, 0, 1] }, { q: 1, ox: 0, s: 0.65, cur: [0, 0, 1], tgt: [0, 0, 1] }, { q: 2, ox: 2.1, s: 0.65, cur: [0, 0, 1], tgt: [0, 0, 1] }];
+      cam.dist = n > 1 ? 7.6 : 6.2;
+      units.forEach(u => { const t = getTelemetry(u.q); u.cur = u.tgt = [t.x, t.y, t.z]; });
+    }
+
+    function proj(p, B) {
+      const dep = p[0] * B.d[0] + p[1] * B.d[1] + p[2] * B.d[2];
+      const px = p[0] * B.r[0] + p[1] * B.r[1];
+      const py = p[0] * B.u[0] + p[1] * B.u[1] + p[2] * B.u[2];
+      const k = B.f / Math.max(cam.dist - dep, 0.3);
+      return { x: W / 2 + px * k, y: H / 2 - py * k, k };
+    }
+
+    function line(a, b, col, w = 1, dash = []) {
+      ctx.strokeStyle = col; ctx.lineWidth = w; ctx.setLineDash(dash);
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    function loop() {
+      requestAnimationFrame(loop);
+      if (!W || !H) return;
+      ctx.clearRect(0, 0, W, H);
+
+      const ce = Math.cos(cam.el), se = Math.sin(cam.el), ca = Math.cos(cam.az), sa = Math.sin(cam.az);
+      const fit = Math.min(H, W / (units.length === 1 ? 1 : 1.5));
+      const B = { d: [ce * ca, ce * sa, se], r: [-sa, ca, 0], u: [-se * ca, -se * sa, ce], f: fit * 1.6 };
+
+      units.forEach(u => {
+        for (let i = 0; i < 3; i++) u.cur[i] += (u.tgt[i] - u.cur[i]) * 0.2;
+        const P = (x, y, z) => proj([x * u.s + B.r[0] * u.ox, y * u.s + B.r[1] * u.ox, z * u.s], B);
+        const c = P(0, 0, 0), rpx = c.k * u.s;
+
+        // Sphere outline & equator
+        ctx.fillStyle = 'rgba(255,255,255,0.45)';
+        ctx.beginPath(); ctx.arc(c.x, c.y, rpx, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#888'; ctx.lineWidth = 1; ctx.stroke();
+
+        ctx.strokeStyle = '#aaa';
+        ctx.beginPath();
+        for (let i = 0; i <= 48; i++) {
+          const a = (i / 48) * Math.PI * 2, pt = P(Math.cos(a), Math.sin(a), 0);
+          i === 0 ? ctx.moveTo(pt.x, pt.y) : ctx.lineTo(pt.x, pt.y);
+        }
+        ctx.stroke();
+
+        // Axes
+        line(P(0, 0, -1.3), P(0, 0, 1.3), '#0F52BA', 1.2);
+        line(P(-1.3, 0, 0), P(1.3, 0, 0), '#E63B19', 1.2);
+        line(P(0, -1.3, 0), P(0, 1.3, 0), '#0D7A5F', 1.2);
+
+        // State vector
+        const v = u.cur, tip = P(v[0], v[1], v[2]);
+        line(P(0, 0, v[2]), tip, '#999', 1, [3, 3]);
+        line(P(v[0], v[1], 0), tip, '#999', 1, [3, 3]);
+        line(c, tip, COLORS[u.q], 2.5);
+        ctx.fillStyle = COLORS[u.q];
+        ctx.beginPath(); ctx.arc(tip.x, tip.y, 4.5, 0, Math.PI * 2); ctx.fill();
+
+        // Labels
+        ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
+        const lbls = [
+          [`Q${u.q}`, P(0, 0, 1.65), '#111'],
+          ['|0⟩', P(0, 0, 1.42), '#0F52BA'], ['|1⟩', P(0, 0, -1.45), '#0F52BA'],
+          ['|+⟩', P(1.42, 0, 0), '#E63B19'], ['|-⟩', P(-1.42, 0, 0), '#E63B19'],
+          ['|i⟩', P(0, 1.42, 0), '#0D7A5F'], ['|-i⟩', P(0, -1.42, 0), '#0D7A5F']
+        ];
+        lbls.forEach(([txt, pt, col]) => { ctx.fillStyle = col; ctx.fillText(txt, pt.x, pt.y + 4); });
+      });
+    }
+
+    window.onload = initCanvas;
+  </script>
+</body>
+</html>

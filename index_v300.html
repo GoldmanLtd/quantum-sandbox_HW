@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Bloch Sphere</title>
+  <style>
+    body { font-family: sans-serif; font-size: 13px; margin: 10px; }
+    .layout { display: flex; gap: 15px; align-items: flex-start; }
+    .controls { width: 320px; }
+    fieldset { border: 1px solid #aaa; margin-bottom: 10px; padding: 8px; }
+    legend { font-weight: bold; }
+    canvas { border: 1px solid #000; background: #f9f9f9; cursor: grab; }
+    .mono { font-family: monospace; }
+    .row { display: flex; justify-content: space-between; align-items: center; margin: 4px 0; }
+    input[type="number"] { width: 55px; }
+    progress { width: 110px; }
+    .active { font-weight: bold; background: #cce0ff; }
+  </style>
+</head>
+<body>
+
+  <div class="row" style="max-width: 935px; border-bottom: 1px solid #ccc; padding-bottom: 5px; margin-bottom: 10px;">
+    <strong>Quantum State & Bloch Sphere</strong>
+    <span id="status" class="mono">Pure state (Tr=1.00)</span>
+    <span id="msg" class="mono" style="color: red;"></span>
+    <button onclick="resetSim()">Reset</button>
+  </div>
+
+  <div class="layout">
+    <!-- BAL OLDAL: VEZÉRLŐK ÉS ADATOK -->
+    <div class="controls">
+      <fieldset>
+        <legend>Register & Gates</legend>
+        <div class="row">
+          <span>Qubits: <b id="q-cnt">1</b></span>
+          <div>
+            <button onclick="setQubits(-1)">-</button>
+            <button onclick="setQubits(1)">+</button>
+          </div>
+        </div>
+        <div class="row">
+          <span>Target:</span>
+          <span id="tgt-btns"></span>
+        </div>
+        <div style="margin-top: 6px;">
+          <button onclick="gate('H')">H</button>
+          <button onclick="gate('X')">X</button>
+          <button onclick="gate('Y')">Y</button>
+          <button onclick="gate('Z')">Z</button>
+          <button onclick="gate('S')">S</button>
+          <button onclick="gate('T')">T</button>
+        </div>
+        <div id="two-q" style="display:none; margin-top: 8px; border-top: 1px solid #ddd; padding-top: 6px;">
+          <div class="row">
+            <span>Control:</span>
+            <span id="ctrl-btns"></span>
+          </div>
+          <button onclick="twoGate('CNOT')">CNOT</button>
+          <button onclick="twoGate('CZ')">CZ</button>
+          <button onclick="twoGate('SWAP')">SWAP</button>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Rotations</legend>
+        <div class="row">
+          <span>Rx: <span id="rx-v" class="mono">0°</span></span>
+          <input id="rx" type="range" min="-180" max="180" value="0" oninput="document.getElementById('rx-v').textContent=this.value+'°'" />
+          <button onclick="rot('x')">Apply</button>
+        </div>
+        <div class="row">
+          <span>Ry: <span id="ry-v" class="mono">0°</span></span>
+          <input id="ry" type="range" min="-180" max="180" value="0" oninput="document.getElementById('ry-v').textContent=this.value+'°'" />
+          <button onclick="rot('y')">Apply</button>
+        </div>
+        <div class="row">
+          <span>Rz: <span id="rz-v" class="mono">0°</span></span>
+          <input id="rz" type="range" min="-180" max="180" value="0" oninput="document.getElementById('rz-v').textContent=this.value+'°'" />
+          <button onclick="rot('z')">Apply</button>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Statevector & Telemetry</legend>
+        <div id="dirac" class="mono" style="word-break: break-all; margin-bottom: 6px;">1.000 |0⟩</div>
+        <div id="telemetry" class="mono" style="font-size: 11px;"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Measurement</legend>
+        <div id="probs" class="mono"></div>
+        <button onclick="shots()" style="margin-top: 5px;">1000 Shots</button>
+        <div id="shot-res" class="mono" style="margin-top: 5px; font-size: 11px;"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Manual State (Re + Im·i)</legend>
+        <div id="man-in" class="mono"></div>
+        <div class="row" style="margin-top: 5px;">
+          <label><input type="checkbox" id="norm" checked /> Auto-norm</label>
+          <button onclick="applyManual()">Set State</button>
+        </div>
+      </fieldset>
+    </div>
+
+    <!-- JOBB OLDAL: 3D CANVAS -->
+    <div>
+      <canvas id="cv" width="600" height="520"></canvas>
+      <div class="mono" style="font-size: 11px; color: #555; margin-top: 4px;">
+        Drag: rotate | Wheel: zoom | Dbl-click: reset view | Target angles: <span id="angles">θ=0°, φ=0°</span>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const S2 = 1 / Math.SQRT2;
+  const GATES = {
+    H: [[[S2,0],[S2,0]], [[S2,0],[-S2,0]]],
+    X: [[[0,0],[1,0]], [[1,0],[0,0]]],
+    Y: [[[0,0],[0,-1]], [[0,1],[0,0]]],
+    Z: [[[1,0],[0,0]], [[0,0],[-1,0]]],
+    S: [[[1,0],[0,0]], [[0,0],[0,1]]],
+    T: [[[1,0],[0,0]], [[0,0],[S2,S2]]]
+  };
+  const COLS = ['#d00', '#05c', '#084'];
+
+  let nQ = 1, tgt = 0, ctrl = 0;
+  let amps = [[1, 0], [0, 0]]; // [re, im] párok
+  let az = 0.6, el = 0.4, dist = 5.5;
+
+  const add = (a, b) => [a[0] + b[0], a[1] + b[1]];
+  const mul = (a, b) => [a[0]*b[0] - a[1]*b[1], a[0]*b[1] + a[1]*b[0]];
+  const abs2 = a => a[0]*a[0] + a[1]*a[1];
+
+  function msg(t) {
+    document.getElementById('msg').textContent = t;
+    setTimeout(() => document.getElementById('msg').textContent = '', 2000);
+  }
+
+  function norm(v) {
+    let s = Math.sqrt(v.reduce((acc, x) => acc + abs2(x), 0));
+    if (s < 1e-9) { v[0] = [1, 0]; return v; }
+    return v.map(x => [x[0]/s, x[1]/s]);
+  }
+
+  function applyU(U, q) {
+    let dim = 1 << nQ, mask = 1 << (nQ - 1 - q), next = [...amps];
+    for (let i = 0; i < dim; i++) {
+      if ((i & mask) === 0) {
+        let a0 = amps[i], a1 = amps[i | mask];
+        next[i] = add(mul(U[0][0], a0), mul(U[0][1], a1));
+        next[i | mask] = add(mul(U[1][0], a0), mul(U[1][1], a1));
+      }
+    }
+    amps = norm(next);
+    update();
+  }
+
+  function gate(g) { applyU(GATES[g], tgt); }
+
+  function rot(ax) {
+    let rad = (parseFloat(document.getElementById('r' + ax).value) * Math.PI) / 180;
+    let c = Math.cos(rad / 2), s = Math.sin(rad / 2);
+    let U = ax === 'x' ? [[[c,0],[0,-s]], [[0,-s],[c,0]]]
+          : ax === 'y' ? [[[c,0],[-s,0]], [[s,0],[c,0]]]
+          : [[[c,-s],[0,0]], [[0,0],[c,s]]];
+    applyU(U, tgt);
+  }
+
+  function twoGate(type) {
+    if (ctrl === tgt) return msg('Ctrl != Tgt required');
+    let dim = 1 << nQ, cB = nQ - 1 - ctrl, tB = nQ - 1 - tgt, next = [...amps];
+    for (let i = 0; i < dim; i++) {
+      let bC = (i >> cB) & 1, bT = (i >> tB) & 1;
+      if (type === 'CNOT' && bC && !bT) [next[i], next[i | (1 << tB)]] = [next[i | (1 << tB)], next[i]];
+      if (type === 'CZ' && bC && bT) next[i] = [-next[i][0], -next[i][1]];
+      if (type === 'SWAP' && bC && !bT) {
+        let sw = (i & ~(1 << cB)) | (1 << tB);
+        [next[i], next[sw]] = [next[sw], next[i]];
+      }
+    }
+    amps = next;
+    update();
+  }
+
+  function getBloch(q) {
+    let dim = 1 << nQ, mask = 1 << (nQ - 1 - q);
+    let r00 = 0, r11 = 0, r01 = [0, 0];
+    for (let i = 0; i < dim; i++) {
+      if ((i & mask) === 0) {
+        let a0 = amps[i], a1 = amps[i | mask];
+        r00 += abs2(a0); r11 += abs2(a1);
+        r01 = add(r01, mul(a0, [a1[0], -a1[1]]));
+      }
+    }
+    let x = 2 * r01[0], y = -2 * r01[1], z = r00 - r11;
+    let r = Math.min(1, Math.hypot(x, y, z));
+    let pur = 0.5 * (1 + r * r);
+    let th = r > 1e-4 ? Math.acos(Math.max(-1, Math.min(1, z / r))) * 180 / Math.PI : 0;
+    let ph = Math.hypot(x, y) > 1e-4 ? Math.atan2(y, x) * 180 / Math.PI : 0;
+    return { x, y, z, pur, th, ph };
+  }
+
+  function setQubits(d) {
+    let next = Math.max(1, Math.min(3, nQ + d));
+    if (next === nQ) return;
+    nQ = next; tgt = 0; ctrl = nQ > 1 ? 1 : 0;
+    resetSim();
+  }
+
+  function resetSim() {
+    amps = Array.from({ length: 1 << nQ }, (_, i) => i === 0 ? [1, 0] : [0, 0]);
+    document.getElementById('shot-res').textContent = '';
+    ['x', 'y', 'z'].forEach(a => {
+      document.getElementById('r' + a).value = 0;
+      document.getElementById('r' + a + '-v').textContent = '0°';
+    });
+    update();
+  }
+
+  function shots() {
+    let counts = new Array(amps.length).fill(0), sum = 0;
+    let cdf = amps.map(a => sum += abs2(a));
+    for (let s = 0; s < 1000; s++) {
+      let u = Math.random();
+      for (let i = 0; i < cdf.length; i++) if (u <= cdf[i]) { counts[i]++; break; }
+    }
+    document.getElementById('shot-res').innerHTML = counts
+      .map((c, i) => `|${i.toString(2).padStart(nQ, '0')}⟩: ${c} (${(c/10).toFixed(1)}%)`).join(' | ');
+  }
+
+  function applyManual() {
+    let raw = [], s = 0;
+    for (let i = 0; i < (1 << nQ); i++) {
+      let re = parseFloat(document.getElementById('re' + i).value) || 0;
+      let im = parseFloat(document.getElementById('im' + i).value) || 0;
+      raw.push([re, im]); s += re*re + im*im;
+    }
+    if (s < 1e-9) return msg('Zero norm!');
+    amps = document.getElementById('norm').checked ? norm(raw) : raw;
+    update();
+  }
+
+  function update() {
+    document.getElementById('q-cnt').textContent = nQ;
+    document.getElementById('tgt-btns').innerHTML = Array.from({ length: nQ }, (_, q) =>
+      `<button class="${q===tgt?'active':''}" onclick="tgt=${q};update()">Q${q}</button>`).join(' ');
+
+    document.getElementById('two-q').style.display = nQ > 1 ? 'block' : 'none';
+    document.getElementById('ctrl-btns').innerHTML = Array.from({ length: nQ }, (_, q) =>
+      `<button class="${q===ctrl?'active':''}" onclick="ctrl=${q};update()">Q${q}</button>`).join(' ');
+
+    // Dirac szöveg
+    let terms = [];
+    amps.forEach((a, i) => {
+      if (abs2(a) > 1e-6) {
+        let ket = `|${i.toString(2).padStart(nQ, '0')}⟩`;
+        let str = Math.abs(a[1]) < 1e-3 ? a[0].toFixed(2) : `(${a[0].toFixed(2)}${a[1]>=0?'+':''}${a[1].toFixed(2)}i)`;
+        terms.push(`${str}${ket}`);
+      }
+    });
+    document.getElementById('dirac').textContent = terms.join(' + ') || '0';
+
+    // Telemetria & Entanglement státusz
+    let minP = 1, tel = '';
+    for (let q = 0; q < nQ; q++) {
+      let b = getBloch(q);
+      minP = Math.min(minP, b.pur);
+      if (q === tgt) document.getElementById('angles').textContent = `θ=${b.th.toFixed(1)}°, φ=${b.ph.toFixed(1)}°`;
+      tel += `<div style="color:${COLS[q]}">Q${q}: (${b.x.toFixed(2)}, ${b.y.toFixed(2)}, ${b.z.toFixed(2)}) Purity:${Math.round(b.pur*100)}%</div>`;
+    }
+    document.getElementById('telemetry').innerHTML = tel;
+    document.getElementById('status').textContent = minP < 0.98 ? `Entangled (Min Tr=${minP.toFixed(2)})` : 'Pure state (Tr=1.00)';
+
+    // Valószínűségek és kézi inputok
+    let normSq = amps.reduce((acc, a) => acc + abs2(a), 0) || 1;
+    document.getElementById('probs').innerHTML = amps.map((a, i) => {
+      let p = (abs2(a) / normSq) * 100;
+      return `<div class="row"><span>|${i.toString(2).padStart(nQ, '0')}⟩</span><progress value="${p}" max="100"></progress><span>${p.toFixed(1)}%</span></div>`;
+    }).join('');
+
+    document.getElementById('man-in').innerHTML = amps.map((a, i) =>
+      `<div class="row"><span>|${i.toString(2).padStart(nQ, '0')}⟩</span><div><input id="re${i}" type="number" step="0.1" value="${a[0].toFixed(2)}">+<input id="im${i}" type="number" step="0.1" value="${a[1].toFixed(2)}">i</div></div>`
+    ).join('');
+
+    draw();
+  }
+
+  // --- Egyszerű 3D Canvas rajzolás ---
+  const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+  let drag = false, last = [0, 0];
+  cv.onmousedown = e => { drag = true; last = [e.clientX, e.clientY]; };
+  window.onmouseup = () => drag = false;
+  window.onmousemove = e => {
+    if (!drag) return;
+    az -= (e.clientX - last[0]) * 0.01;
+    el = Math.max(-1.5, Math.min(1.5, el + (e.clientY - last[1]) * 0.01));
+    last = [e.clientX, e.clientY];
+    draw();
+  };
+  cv.onwheel = e => { e.preventDefault(); dist = Math.max(2.5, Math.min(10, dist + e.deltaY * 0.005)); draw(); };
+  cv.ondblclick = () => { az = 0.6; el = 0.4; dist = 5.5; draw(); };
+
+  function draw() {
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    let ce = Math.cos(el), se = Math.sin(el), ca = Math.cos(az), sa = Math.sin(az);
+    let d = [ce*ca, ce*sa, se], r = [-sa, ca, 0], u = [-se*ca, -se*sa, ce];
+
+    const proj = (p, ox, s) => {
+      let wp = [p[0]*s + r[0]*ox, p[1]*s + r[1]*ox, p[2]*s];
+      let dep = wp[0]*d[0] + wp[1]*d[1] + wp[2]*d[2];
+      let k = 650 / Math.max(dist - dep, 0.5);
+      return [cv.width/2 + (wp[0]*r[0] + wp[1]*r[1])*k, cv.height/2 - (wp[0]*u[0] + wp[1]*u[1] + wp[2]*u[2])*k, k];
+    };
+
+    const line = (a, b, col, w = 1) => {
+      ctx.strokeStyle = col; ctx.lineWidth = w;
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+    };
+
+    let offsets = nQ === 1 ? [0] : nQ === 2 ? [-1.3, 1.3] : [-1.8, 0, 1.8];
+    let scale = nQ === 1 ? 1.1 : nQ === 2 ? 0.8 : 0.62;
+
+    offsets.forEach((ox, q) => {
+      let c = proj([0, 0, 0], ox, scale);
+      ctx.strokeStyle = '#888'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(c[0], c[1], c[2] * scale, 0, 7); ctx.stroke();
+
+      // Egyenlítő
+      ctx.strokeStyle = '#ccc'; ctx.beginPath();
+      for (let i = 0; i <= 40; i++) {
+        let a = (i / 40) * Math.PI * 2, pt = proj([Math.cos(a), Math.sin(a), 0], ox, scale);
+        i === 0 ? ctx.moveTo(pt[0], pt[1]) : ctx.lineTo(pt[0], pt[1]);
+      }
+      ctx.stroke();
+
+      // Tengelyek és feliratok
+      line(proj([0,0,-1.2], ox, scale), proj([0,0,1.2], ox, scale), '#05c');
+      line(proj([-1.2,0,0], ox, scale), proj([1.2,0,0], ox, scale), '#d00');
+      line(proj([0,-1.2,0], ox, scale), proj([0,1.2,0], ox, scale), '#084');
+
+      ctx.fillStyle = '#000'; ctx.font = '11px monospace';
+      ctx.fillText(`Q${q}`, ...proj([0, 0, 1.45], ox, scale).slice(0, 2));
+      ctx.fillText('|0⟩', ...proj([0, 0, 1.25], ox, scale).slice(0, 2));
+      ctx.fillText('|1⟩', ...proj([0, 0, -1.32], ox, scale).slice(0, 2));
+      ctx.fillText('|+⟩', ...proj([1.25, 0, 0], ox, scale).slice(0, 2));
+      ctx.fillText('|i⟩', ...proj([0, 1.25, 0], ox, scale).slice(0, 2));
+
+      // Állapotvektor
+      let b = getBloch(q), tip = proj([b.x, b.y, b.z], ox, scale);
+      line(c, tip, COLS[q], 2.5);
+      ctx.fillStyle = COLS[q]; ctx.beginPath(); ctx.arc(tip[0], tip[1], 4, 0, 7); ctx.fill();
+    });
+  }
+
+  update();
+</script>
+</body>
+</html>
